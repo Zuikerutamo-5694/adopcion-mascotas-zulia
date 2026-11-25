@@ -1,29 +1,30 @@
 import React, { useState } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import {
-  Text,
-  TextInput,
-  Button,
-  Card,
-  useTheme,
-  Snackbar,
-} from 'react-native-paper';
+import { Snackbar } from 'react-native-paper';
 import { Stack, useRouter } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import rescatesService from '../../../src/services/rescates.service';
+import { useAppTheme } from '../../../src/contexts/ThemeContext';
+import {
+  PageHeader,
+  SectionSheet,
+  FieldInput,
+  ActionButton,
+} from '../../../src/components/ui';
 
 export default function NuevoRescate() {
-  const theme = useTheme();
+  const { palette, fonts } = useAppTheme();
   const router = useRouter();
 
-  const [descripcion, setDescripcion] = useState('');
+  const [notas, setNotas] = useState('');
   const [ubicacion, setUbicacion] = useState('');
+  const [fechaRescate, setFechaRescate] = useState(new Date().toISOString().split('T')[0]);
   const [condicion, setCondicion] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [loading, setLoading] = useState(false);
@@ -34,37 +35,35 @@ export default function NuevoRescate() {
   const handleSubmit = async () => {
     setError('');
 
-    if (!descripcion.trim()) {
-      setError('La descripción del rescate es requerida.');
+    if (!notas.trim()) {
+      setError('El resumen del operativo es obligatorio.');
       return;
     }
     if (!ubicacion.trim()) {
-      setError('La ubicación es requerida.');
+      setError('El sector o municipio del hallazgo es obligatorio.');
       return;
     }
 
     setLoading(true);
     try {
       const rescateData = {
-        descripcion: descripcion.trim(),
+        notas: notas.trim(),
         ubicacion: ubicacion.trim(),
-        condicion: condicion.trim() || undefined,
+        fecha_rescate: fechaRescate.trim() || undefined,
+        condicion_inicial: condicion.trim() || undefined,
         observaciones: observaciones.trim() || undefined,
       };
 
       const result = await rescatesService.crear(rescateData);
       if (result.success) {
-        setSnackMessage('¡Rescate registrado exitosamente!');
+        setSnackMessage('Operativo registrado en Supabase.');
         setSnackVisible(true);
-        setTimeout(() => {
-          router.back();
-        }, 1500);
+        setTimeout(() => router.back(), 800);
       } else {
-        setError(result.message || 'Error al registrar el rescate.');
+        setError(result.message || 'No se pudo registrar el operativo.');
       }
     } catch (err) {
-      const msg = err.response?.data?.message || 'Error al registrar el rescate.';
-      setError(msg);
+      setError(err.response?.data?.message || 'Error al guardar el operativo.');
     } finally {
       setLoading(false);
     }
@@ -72,196 +71,127 @@ export default function NuevoRescate() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: palette.canvas }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <Stack.Screen
-          options={{
-            title: 'Registrar Rescate',
-            headerShown: true,
-            headerStyle: { backgroundColor: theme.colors.surface },
-            headerTintColor: theme.colors.primary,
-          }}
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <PageHeader
+          eyebrow="NUEVA ENTRADA DE BITÁCORA"
+          title="Registrar operativo de rescate"
+          subtitle="Documenta los datos de ubicación y condición inicial para trazabilidad del resguardo."
+          secondaryActionLabel="Volver"
+          onSecondaryAction={() => router.back()}
+          maxWidth={760}
         />
 
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Card
-            style={[styles.card, { backgroundColor: theme.colors.surface }]}
-            elevation={2}
-          >
-            <Card.Content style={styles.cardContent}>
-              <View style={styles.iconRow}>
-                <MaterialCommunityIcons
-                  name="hand-heart"
-                  size={40}
-                  color={theme.colors.primary}
-                />
-                <Text
-                  variant="titleLarge"
-                  style={[styles.title, { color: theme.colors.onSurface }]}
-                >
-                  Nuevo Rescate
+        <View style={styles.body}>
+          <SectionSheet title="Datos del hallazgo">
+            {error ? (
+              <View
+                style={[
+                  styles.errorBox,
+                  {
+                    backgroundColor: palette.status.danger.bg,
+                    borderColor: palette.status.danger.border,
+                  },
+                ]}
+              >
+                <Text style={{ color: palette.status.danger.fg, fontFamily: fonts.sans, fontSize: 13.5 }}>
+                  {error}
                 </Text>
               </View>
+            ) : null}
 
-              {error ? (
-                <View
-                  style={[
-                    styles.errorBox,
-                    { backgroundColor: theme.colors.errorContainer },
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name="alert-circle"
-                    size={20}
-                    color={theme.colors.error}
-                  />
-                  <Text style={{ color: theme.colors.error, flex: 1 }}>
-                    {error}
-                  </Text>
-                </View>
-              ) : null}
+            <FieldInput
+              label="Resumen del operativo *"
+              value={notas}
+              onChangeText={setNotas}
+              multiline
+              numberOfLines={3}
+              placeholder="Ej: Rescate de camada canina en zona comercial"
+              disabled={loading}
+            />
 
-              <TextInput
-                label="Descripción del rescate *"
-                value={descripcion}
-                onChangeText={setDescripcion}
-                mode="outlined"
-                multiline
-                numberOfLines={4}
-                left={<TextInput.Icon icon="text" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
-                disabled={loading}
-              />
+            <FieldInput
+              label="Municipio y sector exacto *"
+              value={ubicacion}
+              onChangeText={setUbicacion}
+              placeholder="Ej: Av. 5 de Julio con Delicias, Maracaibo"
+              disabled={loading}
+            />
 
-              <TextInput
-                label="Ubicación *"
-                value={ubicacion}
-                onChangeText={setUbicacion}
-                mode="outlined"
-                left={<TextInput.Icon icon="map-marker" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
-                disabled={loading}
-                placeholder="Ej: Av. 5 de Julio, Maracaibo"
-              />
+            <FieldInput
+              label="Fecha de intervención (AAAA-MM-DD)"
+              value={fechaRescate}
+              onChangeText={setFechaRescate}
+              placeholder="2026-11-24"
+              disabled={loading}
+            />
 
-              <TextInput
-                label="Condición del animal"
-                value={condicion}
-                onChangeText={setCondicion}
-                mode="outlined"
-                left={<TextInput.Icon icon="heart-pulse" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
-                disabled={loading}
-                placeholder="Ej: Desnutrido, herido, buen estado"
-              />
+            <FieldInput
+              label="Condición física inicial observada"
+              value={condicion}
+              onChangeText={setCondicion}
+              placeholder="Ej: Deshidratación leve, sin lesiones visibles"
+              disabled={loading}
+            />
 
-              <TextInput
-                label="Observaciones adicionales"
-                value={observaciones}
-                onChangeText={setObservaciones}
-                mode="outlined"
-                multiline
-                numberOfLines={3}
-                left={<TextInput.Icon icon="note-text" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
-                disabled={loading}
-              />
+            <FieldInput
+              label="Observaciones adicionales de campo"
+              value={observaciones}
+              onChangeText={setObservaciones}
+              multiline
+              numberOfLines={3}
+              disabled={loading}
+            />
 
-              <Button
-                mode="contained"
-                onPress={handleSubmit}
-                loading={loading}
-                disabled={loading}
-                style={styles.submitButton}
-                contentStyle={styles.submitContent}
-                buttonColor={theme.colors.primary}
-                icon="check"
-              >
-                {loading ? 'Registrando...' : 'Registrar Rescate'}
-              </Button>
-
-              <Button
-                mode="text"
+            <View style={styles.actions}>
+              <ActionButton
+                label="Cancelar"
+                variant="secondary"
                 onPress={() => router.back()}
                 disabled={loading}
-                textColor={theme.colors.onSurfaceVariant}
-                style={styles.cancelButton}
-              >
-                Cancelar
-              </Button>
-            </Card.Content>
-          </Card>
-        </ScrollView>
+                style={{ flex: 1 }}
+              />
+              <ActionButton
+                label={loading ? 'Guardando...' : 'Guardar en bitácora'}
+                variant="primary"
+                loading={loading}
+                onPress={handleSubmit}
+                style={{ flex: 2 }}
+              />
+            </View>
+          </SectionSheet>
+        </View>
+      </ScrollView>
 
-        <Snackbar
-          visible={snackVisible}
-          onDismiss={() => setSnackVisible(false)}
-          duration={2000}
-        >
-          {snackMessage}
-        </Snackbar>
-      </View>
+      <Snackbar visible={snackVisible} onDismiss={() => setSnackVisible(false)} duration={2200}>
+        {snackMessage}
+      </Snackbar>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-  },
-  card: {
-    borderRadius: 16,
-    maxWidth: 600,
-    alignSelf: 'center',
+  scroll: { flexGrow: 1, paddingBottom: 40 },
+  body: {
+    maxWidth: 760,
     width: '100%',
-  },
-  cardContent: {
-    padding: 24,
-  },
-  iconRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 24,
-  },
-  title: {
-    fontWeight: '700',
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 18,
   },
   errorBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
     padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-    gap: 8,
-  },
-  input: {
+    borderRadius: 4,
+    borderWidth: 1,
     marginBottom: 16,
   },
-  submitButton: {
-    marginTop: 8,
-    borderRadius: 8,
-  },
-  submitContent: {
-    paddingVertical: 6,
-  },
-  cancelButton: {
-    marginTop: 8,
+  actions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 6,
   },
 });

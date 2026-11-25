@@ -1,21 +1,31 @@
 import React from 'react';
-import { View, StyleSheet, Image } from 'react-native';
-import { ActivityIndicator, Text, useTheme } from 'react-native-paper';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { useAppTheme } from '../contexts/ThemeContext';
 
-export default function LoadingScreen({ message = 'Cargando...' }) {
-  const theme = useTheme();
+export default function LoadingScreen({ message = 'Cargando información...' }) {
+  const { palette, fonts } = useAppTheme();
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Image
-        source={require('../../assets/logo.png')}
-        style={styles.logo}
-        resizeMode="contain"
-      />
-      <ActivityIndicator size="large" color={theme.colors.primary} />
-      <Text variant="bodyLarge" style={[styles.text, { color: theme.colors.onBackground }]}>
-        {message}
-      </Text>
+    <View style={[styles.container, { backgroundColor: palette.canvas }]}>
+      <View
+        style={[
+          styles.box,
+          {
+            backgroundColor: palette.surface,
+            borderColor: palette.border,
+          },
+        ]}
+      >
+        <ActivityIndicator size="small" color={palette.primary} />
+        <Text
+          style={[
+            styles.text,
+            { color: palette.inkSecondary, fontFamily: fonts.sans },
+          ]}
+        >
+          {message}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -25,14 +35,19 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 24,
   },
-  logo: {
-    width: 72,
-    height: 72,
-    marginBottom: 20,
+  box: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 6,
+    borderWidth: 1,
   },
   text: {
-    marginTop: 16,
+    fontSize: 14,
+    fontWeight: '500',
   },
 });

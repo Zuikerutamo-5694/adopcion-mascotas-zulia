@@ -1,41 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
   FlatList,
   RefreshControl,
+  Pressable,
 } from 'react-native';
-import {
-  Text,
-  Card,
-  Chip,
-  Button,
-  useTheme,
-} from 'react-native-paper';
-import { useRouter, Stack } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import solicitudesService from '../../../src/services/solicitudes.service';
 import { useAuth } from '../../../src/hooks/useAuth';
+import { useAppTheme } from '../../../src/contexts/ThemeContext';
 import LoadingScreen from '../../../src/components/LoadingScreen';
 import EmptyState from '../../../src/components/EmptyState';
 import ErrorMessage from '../../../src/components/ErrorMessage';
-
-const estadoSolicitudColors = {
-  pendiente: '#FF9800',
-  aprobada: '#4CAF50',
-  rechazada: '#F44336',
-  en_revision: '#2196F3',
-};
-
-const estadoSolicitudLabels = {
-  pendiente: 'Pendiente',
-  aprobada: 'Aprobada',
-  rechazada: 'Rechazada',
-  en_revision: 'En revisión',
-};
+import {
+  PageHeader,
+  StatusStamp,
+  FolioCode,
+  ActionButton,
+} from '../../../src/components/ui';
 
 export default function SolicitudesIndex() {
-  const theme = useTheme();
+  const { palette, fonts } = useAppTheme();
   const router = useRouter();
   const { user } = useAuth();
   const rol = user?.rol?.toLowerCase() || '';
@@ -45,163 +32,181 @@ export default function SolicitudesIndex() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    fetchSolicitudes();
-  }, []);
-
-  const fetchSolicitudes = async () => {
+  const fetchSolicitudes = useCallback(async () => {
     try {
       setError('');
       const result = await solicitudesService.listar();
       if (result.success) {
         const data = result.data;
-        const list = Array.isArray(data) ? data : data.solicitudes || data.items || [];
+        const list = Array.isArray(data) ? data : data.solicitudes || [];
         setSolicitudes(list);
       } else {
-        setError(result.message || 'Error al cargar solicitudes.');
+        setError(result.message || 'No se pudieron cargar las solicitudes.');
       }
     } catch (err) {
-      setError('Error al cargar solicitudes.');
+      setError(err.response?.data?.message || 'Error al consultar solicitudes de adopción.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchSolicitudes();
-  };
+  useFocusEffect(
+    useCallback(() => {
+      fetchSolicitudes();
+    }, [fetchSolicitudes])
+  );
 
   if (loading) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Solicitudes', headerShown: true }} />
-        <LoadingScreen message="Cargando solicitudes..." />
+        <Stack.Screen options={{ headerShown: false }} />
+        <LoadingScreen message="Cargando solicitudes de adopción..." />
       </>
     );
   }
 
+  const headerNode = (
+    <View>
+      <PageHeader
+        eyebrow="PROCESOS DE ADOPCIÓN RESPONSABLE"
+        title={rol === 'adoptante' ? 'Mis postulaciones de adopción' : 'Bandeja de solicitudes'}
+        subtitle={
+          rol === 'adoptante'
+            ? 'Consulta el dictamen de cada postulación y las citas presenciales programadas.'
+            : 'Evalúa expedientes socioeconómicos, registra dictámenes y coordina entrevistas.'
+        }
+        maxWidth={960}
+      />
+      {error ? <ErrorMessage message={error} onRetry={fetchSolicitudes} /> : null}
+    </View>
+  );
+
   const renderSolicitud = ({ item }) => {
+    const solId = item.id_solicitud;
     const estado = item.estado || 'pendiente';
-    const mascotaNombre =
-      item.mascota_nombre || item.mascota?.nombre || item.mascotaNombre || 'Mascota';
-    const adoptanteNombre =
-      item.adoptante_nombre || item.adoptante?.nombre || item.adoptanteNombre || 'Adoptante';
+    const mascotaNombre = item.mascota_nombre || 'Mascota';
+    const adoptanteNombre = item.adoptante_nombre || 'Adoptante';
+    const fechaRaw = item.fecha_solicitud || item.fecha;
+    const motivoText = item.motivo || item.datos_formulario?.motivo || '';
 
     return (
-      <Card
-        style={[styles.card, { backgroundColor: theme.colors.surface }]}
-        elevation={1}
-        onPress={() =>
-          router.push(`/(tabs)/solicitudes/${item.id_solicitud || item._id || item.id}`)
-        }
-      >
-        <Card.Content>
-          <View style={styles.cardHeader}>
-            <MaterialCommunityIcons
-              name="file-document-edit"
-              size={24}
-              color={theme.colors.primary}
-            />
-            <View style={styles.cardHeaderText}>
-              <Text
-                variant="titleMedium"
-                style={{ color: theme.colors.onSurface, fontWeight: '600' }}
-              >
-                {rol === 'rescatista'
-                  ? `Solicitud de ${adoptanteNombre}`
-                  : `Solicitud para ${mascotaNombre}`}
-              </Text>
-              <Text
-                variant="bodySmall"
-                style={{ color: theme.colors.onSurfaceVariant }}
-              >
-                {item.fecha
-                  ? new Date(item.fecha || item.createdAt).toLocaleDateString('es-VE')
-                  : 'Sin fecha'}
-              </Text>
-            </View>
-            <Chip
-              compact
-              style={{
-                backgroundColor: estadoSolicitudColors[estado] || '#9E9E9E',
-              }}
-              textStyle={{ color: '#FFF', fontSize: 11, fontWeight: '600' }}
-            >
-              {estadoSolicitudLabels[estado] || estado}
-            </Chip>
+      <View style={styles.itemOuter}>
+        <View
+          style={[
+            styles.sheet,
+            {
+              backgroundColor: palette.surface,
+              borderColor: palette.border,
+            },
+          ]}
+        >
+          <View style={[styles.metaRow, { borderBottomColor: palette.border }]}>
+            <FolioCode prefix="SOLICITUD" id={solId} />
+            <StatusStamp status={estado} />
           </View>
 
-          {item.motivo && (
+          <View style={styles.body}>
+            <Pressable
+              onPress={() => router.push(`/(tabs)/solicitudes/${solId}`)}
+              accessibilityRole="link"
+            >
+              <Text
+                style={{
+                  color: palette.ink,
+                  fontFamily: fonts.serif,
+                  fontSize: 20,
+                  fontWeight: '600',
+                }}
+              >
+                {rol === 'adoptante'
+                  ? `Postulación para adoptar a ${mascotaNombre}`
+                  : `${mascotaNombre}: postulación de ${adoptanteNombre}`}
+              </Text>
+            </Pressable>
+
             <Text
-              variant="bodySmall"
-              style={{ color: theme.colors.onSurfaceVariant, marginTop: 8 }}
-              numberOfLines={2}
+              style={{
+                color: palette.inkSecondary,
+                fontFamily: fonts.mono,
+                fontSize: 12,
+                marginTop: 4,
+              }}
             >
-              {item.motivo}
+              Fecha: {fechaRaw ? new Date(fechaRaw).toLocaleDateString('es-VE') : 'No registrada'}
+              {item.adoptante_correo && rol !== 'adoptante' ? ` · ${item.adoptante_correo}` : ''}
             </Text>
-          )}
 
-          <View style={styles.cardFooter}>
-            <Button
-              mode="text"
-              compact
-              textColor={theme.colors.primary}
-              onPress={() =>
-                router.push(`/(tabs)/solicitudes/${item._id || item.id}`)
-              }
-            >
-              Ver detalle →
-            </Button>
+            {motivoText ? (
+              <Text
+                style={{
+                  color: palette.ink,
+                  fontFamily: fonts.sans,
+                  fontSize: 13.5,
+                  lineHeight: 20,
+                  marginTop: 10,
+                }}
+                numberOfLines={2}
+              >
+                Motivación declarada: "{motivoText}"
+              </Text>
+            ) : null}
           </View>
-        </Card.Content>
-      </Card>
+
+          <View
+            style={[
+              styles.footer,
+              {
+                borderTopColor: palette.border,
+                backgroundColor: palette.surfaceSubtle,
+              },
+            ]}
+          >
+            <ActionButton
+              label="Abrir expediente y citas"
+              variant="secondary"
+              compact
+              onPress={() => router.push(`/(tabs)/solicitudes/${solId}`)}
+            />
+          </View>
+        </View>
+      </View>
     );
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Stack.Screen
-        options={{
-          title: rol === 'rescatista' ? 'Solicitudes Recibidas' : 'Mis Solicitudes',
-          headerShown: true,
-          headerStyle: { backgroundColor: theme.colors.surface },
-          headerTintColor: theme.colors.primary,
-        }}
-      />
-
-      {error ? (
-        <ErrorMessage message={error} onRetry={fetchSolicitudes} />
-      ) : null}
+    <View style={[styles.container, { backgroundColor: palette.canvas }]}>
+      <Stack.Screen options={{ headerShown: false }} />
 
       {solicitudes.length === 0 && !error ? (
-        <EmptyState
-          icon="file-document-outline"
-          title="No hay solicitudes"
-          message={
-            rol === 'rescatista'
-              ? 'Aún no has recibido solicitudes de adopción.'
-              : 'Aún no has enviado solicitudes de adopción. Explora las mascotas disponibles.'
-          }
-          actionLabel={rol === 'adoptante' ? 'Ver mascotas' : undefined}
-          onAction={
-            rol === 'adoptante'
-              ? () => router.push('/(tabs)/mascotas')
-              : undefined
-          }
-        />
+        <View style={{ flex: 1 }}>
+          {headerNode}
+          <EmptyState
+            title="Sin solicitudes registradas"
+            message={
+              rol === 'adoptante'
+                ? 'Todavía no has enviado postulaciones de adopción. Revisa las fichas disponibles en el catálogo.'
+                : 'No hay solicitudes pendientes de revisión en este momento.'
+            }
+            actionLabel={rol === 'adoptante' ? 'Ir al catálogo' : undefined}
+            onAction={rol === 'adoptante' ? () => router.push('/(tabs)/mascotas') : undefined}
+          />
+        </View>
       ) : (
         <FlatList
           data={solicitudes}
-          keyExtractor={(item) => item._id || item.id || Math.random().toString()}
+          keyExtractor={(item) => String(item.id_solicitud)}
+          ListHeaderComponent={headerNode}
           renderItem={renderSolicitud}
           contentContainerStyle={styles.list}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[theme.colors.primary]}
+              onRefresh={() => {
+                setRefreshing(true);
+                fetchSolicitudes();
+              }}
+              colors={[palette.primary]}
             />
           }
         />
@@ -211,30 +216,36 @@ export default function SolicitudesIndex() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  list: {
-    padding: 16,
-    maxWidth: 900,
+  container: { flex: 1 },
+  list: { paddingBottom: 40 },
+  itemOuter: {
+    maxWidth: 960,
     width: '100%',
     alignSelf: 'center',
+    paddingHorizontal: 20,
+    marginTop: 14,
   },
-  card: {
-    borderRadius: 12,
-    marginBottom: 12,
+  sheet: {
+    borderRadius: 6,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
-  cardHeader: {
+  metaRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
   },
-  cardHeaderText: {
-    flex: 1,
+  body: {
+    padding: 18,
   },
-  cardFooter: {
+  footer: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderTopWidth: 1,
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginTop: 8,
   },
 });

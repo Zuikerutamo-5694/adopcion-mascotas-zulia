@@ -4,13 +4,13 @@ const {
   createSolicitudValidator,
   evaluateSolicitudValidator,
   createCitaValidator,
+  updateCitaEstadoValidator,
   idParamValidator,
 } = require('../validators/solicitudes.validator');
 const { verifyToken, requireRole } = require('../middlewares/auth');
 
 const router = Router();
 
-// POST /api/solicitudes – Adoptante creates a request
 router.post(
   '/',
   verifyToken,
@@ -19,7 +19,6 @@ router.post(
   solicitudesController.create
 );
 
-// GET /api/solicitudes – List requests (role-scoped)
 router.get(
   '/',
   verifyToken,
@@ -27,7 +26,6 @@ router.get(
   solicitudesController.list
 );
 
-// GET /api/solicitudes/:id – Get single request detail
 router.get(
   '/:id',
   verifyToken,
@@ -36,7 +34,6 @@ router.get(
   solicitudesController.getById
 );
 
-// PATCH /api/solicitudes/:id/evaluar – Rescatista/admin approves or denies
 router.patch(
   '/:id/evaluar',
   verifyToken,
@@ -45,13 +42,20 @@ router.patch(
   solicitudesController.evaluate
 );
 
-// POST /api/solicitudes/:id/citas – Create appointment for a request
 router.post(
   '/:id/citas',
   verifyToken,
   requireRole('rescatista', 'administrador', 'adoptante'),
   createCitaValidator,
   solicitudesController.createCita
+);
+
+router.patch(
+  '/:id/citas/:citaId',
+  verifyToken,
+  requireRole('rescatista', 'administrador', 'adoptante'),
+  updateCitaEstadoValidator,
+  solicitudesController.updateCitaEstado
 );
 
 module.exports = router;

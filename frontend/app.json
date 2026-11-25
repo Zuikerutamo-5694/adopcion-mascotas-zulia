@@ -1,39 +1,29 @@
 {
   "expo": {
-    "name": "Adopción de Mascotas",
-    "slug": "adopcion-mascotas",
+    "name": "Red de Adopción Zulia",
+    "slug": "adopcion-mascotas-web",
     "version": "1.0.0",
-    "sdkVersion": "58.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "scheme": "adopcion-mascotas",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#FFF3E0"
+      "backgroundColor": "#F6F4EE"
     },
     "assetBundlePatterns": [
       "**/*"
     ],
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.adopcion.mascotas"
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FFF3E0"
-      },
-      "package": "com.adopcion.mascotas",
-      "permissions": [
-        "android.permission.RECORD_AUDIO"
-      ]
-    },
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "name": "Red Comunitaria de Adopción y Rescate Zulia",
+      "shortName": "Adopción Zulia",
+      "lang": "es",
+      "themeColor": "#134E3A",
+      "backgroundColor": "#F6F4EE"
     },
     "plugins": [
       "expo-router",
@@ -41,16 +31,6 @@
     ],
     "experiments": {
       "typedRoutes": false
-    },
-    "extra": {
-      "router": {
-        "asyncRoutes": {
-          "web": true
-        }
-      },
-      "eas": {
-        "projectId": "470e01ef-65ff-4a14-add9-43d4c7c55a3b"
-      }
     }
   }
 }

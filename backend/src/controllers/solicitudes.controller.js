@@ -1,9 +1,6 @@
 const { validationResult } = require('express-validator');
 const solicitudesService = require('../services/solicitudes.service');
 
-/**
- * POST /api/solicitudes
- */
 async function create(req, res, next) {
   try {
     const errors = validationResult(req);
@@ -11,7 +8,7 @@ async function create(req, res, next) {
       return res.status(400).json({
         success: false,
         data: errors.array(),
-        message: 'Errores de validación',
+        message: errors.array()[0]?.msg || 'Errores de validación',
       });
     }
 
@@ -27,9 +24,6 @@ async function create(req, res, next) {
   }
 }
 
-/**
- * GET /api/solicitudes
- */
 async function list(req, res, next) {
   try {
     const result = await solicitudesService.list(req.user, req.query);
@@ -44,9 +38,6 @@ async function list(req, res, next) {
   }
 }
 
-/**
- * GET /api/solicitudes/:id
- */
 async function getById(req, res, next) {
   try {
     const errors = validationResult(req);
@@ -54,11 +45,11 @@ async function getById(req, res, next) {
       return res.status(400).json({
         success: false,
         data: errors.array(),
-        message: 'Errores de validación',
+        message: errors.array()[0]?.msg || 'Errores de validación',
       });
     }
 
-    const solicitud = await solicitudesService.getById(req.params.id);
+    const solicitud = await solicitudesService.getById(req.params.id, req.user);
 
     res.json({
       success: true,
@@ -70,9 +61,6 @@ async function getById(req, res, next) {
   }
 }
 
-/**
- * PATCH /api/solicitudes/:id/evaluar
- */
 async function evaluate(req, res, next) {
   try {
     const errors = validationResult(req);
@@ -80,11 +68,11 @@ async function evaluate(req, res, next) {
       return res.status(400).json({
         success: false,
         data: errors.array(),
-        message: 'Errores de validación',
+        message: errors.array()[0]?.msg || 'Errores de validación',
       });
     }
 
-    const solicitud = await solicitudesService.evaluate(req.params.id, req.body);
+    const solicitud = await solicitudesService.evaluate(req.params.id, req.body, req.user);
 
     res.json({
       success: true,
@@ -96,9 +84,6 @@ async function evaluate(req, res, next) {
   }
 }
 
-/**
- * POST /api/solicitudes/:id/citas
- */
 async function createCita(req, res, next) {
   try {
     const errors = validationResult(req);
@@ -106,20 +91,48 @@ async function createCita(req, res, next) {
       return res.status(400).json({
         success: false,
         data: errors.array(),
-        message: 'Errores de validación',
+        message: errors.array()[0]?.msg || 'Errores de validación',
       });
     }
 
-    const cita = await solicitudesService.createCita(req.params.id, req.body);
+    const cita = await solicitudesService.createCita(req.params.id, req.body, req.user);
 
     res.status(201).json({
       success: true,
       data: cita,
-      message: 'Cita creada exitosamente',
+      message: 'Cita programada exitosamente',
     });
   } catch (err) {
     next(err);
   }
 }
 
-module.exports = { create, list, getById, evaluate, createCita };
+async function updateCitaEstado(req, res, next) {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        data: errors.array(),
+        message: errors.array()[0]?.msg || 'Errores de validación',
+      });
+    }
+
+    const cita = await solicitudesService.updateCitaEstado(
+      req.params.id,
+      req.params.citaId,
+      req.body.estado,
+      req.user
+    );
+
+    res.json({
+      success: true,
+      data: cita,
+      message: 'Estado de la cita actualizado',
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { create, list, getById, evaluate, createCita, updateCitaEstado };

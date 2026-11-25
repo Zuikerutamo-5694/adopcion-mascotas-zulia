@@ -1,35 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  useWindowDimensions,
 } from 'react-native';
-import {
-  Text,
-  Button,
-  TextInput,
-  Card,
-  useTheme,
-  Chip,
-  Divider,
-  Switch,
-  Snackbar,
-  SegmentedButtons,
-} from 'react-native-paper';
-import { useRouter, Stack } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Switch, Snackbar } from 'react-native-paper';
+import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import mascotasService from '../../../src/services/mascotas.service';
+import rescatesService from '../../../src/services/rescates.service';
 import { useAuth } from '../../../src/hooks/useAuth';
+import { useAppTheme } from '../../../src/contexts/ThemeContext';
+import LoadingScreen from '../../../src/components/LoadingScreen';
+import {
+  PageHeader,
+  SectionSheet,
+  FieldInput,
+  OptionGroup,
+  ActionButton,
+} from '../../../src/components/ui';
 
 const ESPECIES = [
-  { value: 'perro', label: 'Perro', icon: 'dog' },
-  { value: 'gato', label: 'Gato', icon: 'cat' },
-  { value: 'ave', label: 'Ave', icon: 'bird' },
-  { value: 'conejo', label: 'Conejo', icon: 'rabbit' },
-  { value: 'otro', label: 'Otro', icon: 'paw' },
+  { value: 'perro', label: 'Perro' },
+  { value: 'gato', label: 'Gato' },
+  { value: 'ave', label: 'Ave' },
+  { value: 'conejo', label: 'Conejo' },
+  { value: 'otro', label: 'Otro' },
 ];
 
 const SEXOS = [
@@ -45,9 +46,10 @@ const TAMANOS = [
 
 const ESTADOS = [
   { value: 'en_adopcion', label: 'En adopción' },
-  { value: 'en_proceso', label: 'En proceso' },
+  { value: 'en_proceso', label: 'En evaluación' },
   { value: 'en_tratamiento', label: 'En tratamiento' },
-  { value: 'en_rescate', label: 'En rescate' },
+  { value: 'en_rescate', label: 'En resguardo' },
+  { value: 'adoptada', label: 'Adoptada' },
 ];
 
 const NIVELES_EJERCICIO = [
@@ -57,17 +59,44 @@ const NIVELES_EJERCICIO = [
   { value: 'Muy alto', label: 'Muy alto' },
 ];
 
-export default function NuevaMascotaScreen() {
-  const theme = useTheme();
-  const router = useRouter();
-  const { user } = useAuth();
+async function appendAssetToFormData(formData, asset, fieldName = 'foto') {
+  if (Platform.OS === 'web') {
+    if (asset.file) {
+      formData.append(fieldName, asset.file, asset.fileName || asset.file.name || 'foto.jpg');
+      return;
+    }
+    const resp = await fetch(asset.uri);
+    const blob = await resp.blob();
+    const ext = (blob.type?.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+    formData.append(fieldName, blob, asset.fileName || `mascota-${Date.now()}.${ext}`);
+  } else {
+    const filename = asset.uri.split('/').pop() || 'photo.jpg';
+    const match = /\.(\w+)$/.exec(filename);
+    const type = match ? `image/${match[1]}` : 'image/jpeg';
+    formData.append(fieldName, { uri: asset.uri, name: filename, type });
+  }
+}
 
+export default function NuevaMascotaScreen() {
+  const { palette, fonts } = useAppTheme();
+  const router = useRouter();
+  const params = useLocalSearchParams();
+  const { user } = useAuth();
+  const { width } = useWindowDimensions();
+  const isWide = width >= 720;
+
+  const editId = params.editId ? String(params.editId) : null;
+  const isEditing = Boolean(editId);
+
+  const [initialLoading, setInitialLoading] = useState(isEditing);
   const [loading, setLoading] = useState(false);
-  const [seccion, setSeccion] = useState('basica'); // 'basica' | 'salud' | 'alimentacion' | 'legal'
+  const [seccion, setSeccion] = useState('basica');
   const [snackMessage, setSnackMessage] = useState('');
   const [snackVisible, setSnackVisible] = useState(false);
 
-  // — Datos básicos —
+  const [rescatesDisponibles, setRescatesDisponibles] = useState([]);
+  const [idRescate, setIdRescate] = useState(params.rescateId ? String(params.rescateId) : '');
+
   const [nombre, setNombre] = useState('');
   const [especie, setEspecie] = useState('perro');
   const [raza, setRaza] = useState('');
@@ -77,17 +106,19 @@ export default function NuevaMascotaScreen() {
   const [peso, setPeso] = useState('');
   const [color, setColor] = useState('');
   const [estado, setEstado] = useState('en_adopcion');
-  const [ubicacion, setUbicacion] = useState('');
+  const [ubicacion, setUbicacion] = useState(params.lugarRescate || '');
   const [descripcion, setDescripcion] = useState('');
   const [comportamiento, setComportamiento] = useState('');
   const [nivelEjercicio, setNivelEjercicio] = useState('Medio');
   const [compatNinos, setCompatNinos] = useState(true);
   const [compatPerros, setCompatPerros] = useState(false);
   const [compatGatos, setCompatGatos] = useState(false);
-  const [fechaRescate, setFechaRescate] = useState('');
-  const [lugarRescate, setLugarRescate] = useState('');
+  const [fechaRescate, setFechaRescate] = useState(params.fechaRescate || '');
+  const [lugarRescate, setLugarRescate] = useState(params.lugarRescate || '');
 
-  // — Salud —
+  const [fotoUrlManual, setFotoUrlManual] = useState('');
+  const [pickedAsset, setPickedAsset] = useState(null);
+
   const [condicionSalud, setCondicionSalud] = useState('');
   const [esterilizado, setEsterilizado] = useState(false);
   const [microchip, setMicrochip] = useState(false);
@@ -95,82 +126,170 @@ export default function NuevaMascotaScreen() {
   const [alergias, setAlergias] = useState('');
   const [enfermedades, setEnfermedades] = useState('');
   const [medicamentos, setMedicamentos] = useState('');
-  // Vacunas
   const [vacunas, setVacunas] = useState([]);
   const [nuevaVacunaNombre, setNuevaVacunaNombre] = useState('');
   const [nuevaVacunaFecha, setNuevaVacunaFecha] = useState('');
   const [nuevaVacunaProxima, setNuevaVacunaProxima] = useState('');
 
-  // — Alimentación —
   const [aliTipo, setAliTipo] = useState('');
   const [aliFrecuencia, setAliFrecuencia] = useState('');
   const [aliCantidad, setAliCantidad] = useState('');
   const [aliMarca, setAliMarca] = useState('');
   const [aliRestricciones, setAliRestricciones] = useState('');
 
-  // — Legal —
-  const [notasLegales, setNotasLegales] = useState('');
+  const [documentosLegales, setDocumentosLegales] = useState([]);
+  const [nuevoDocumento, setNuevoDocumento] = useState('');
+
+  useEffect(() => {
+    rescatesService
+      .listar()
+      .then((res) => {
+        if (res.success) {
+          const list = Array.isArray(res.data) ? res.data : res.data?.rescates || [];
+          setRescatesDisponibles(list);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!editId) return;
+    (async () => {
+      try {
+        setInitialLoading(true);
+        const res = await mascotasService.obtener(editId);
+        if (res.success && res.data) {
+          const m = res.data;
+          setNombre(m.nombre || '');
+          setEspecie(m.especie || 'perro');
+          setRaza(m.raza || '');
+          setEdad(m.edad_aprox || '');
+          setSexo(m.sexo || 'macho');
+          setTamano(m.tamano || 'mediano');
+          setPeso(m.peso !== null && m.peso !== undefined ? String(m.peso) : '');
+          setColor(m.color || '');
+          setEstado(m.estado || 'en_adopcion');
+          setUbicacion(m.ubicacion || '');
+          setDescripcion(m.descripcion || '');
+          setComportamiento(m.comportamiento || '');
+          setNivelEjercicio(m.nivel_ejercicio || 'Medio');
+          setCompatNinos(Boolean(m.compatible_ninos));
+          setCompatPerros(Boolean(m.compatible_perros));
+          setCompatGatos(Boolean(m.compatible_gatos));
+          setFechaRescate(m.fecha_rescate ? String(m.fecha_rescate).split('T')[0] : '');
+          setLugarRescate(m.lugar_rescate || '');
+          setIdRescate(m.id_rescate ? String(m.id_rescate) : '');
+          setCondicionSalud(m.condicion_salud || '');
+          setEsterilizado(Boolean(m.esterilizado));
+          setMicrochip(Boolean(m.microchip));
+          setNumMicrochip(m.numero_microchip || '');
+          setAlergias(m.alergias || '');
+          setEnfermedades(m.enfermedades_previas || '');
+          setMedicamentos(m.medicamentos_actuales || '');
+          setVacunas(Array.isArray(m.vacunas) ? m.vacunas : []);
+          const ali = m.alimentacion || {};
+          setAliTipo(ali.tipo || '');
+          setAliFrecuencia(ali.frecuencia || '');
+          setAliCantidad(ali.cantidad || '');
+          setAliMarca(ali.marca || '');
+          setAliRestricciones(ali.restricciones || '');
+          setDocumentosLegales(Array.isArray(m.documentos_legales) ? m.documentos_legales : []);
+        }
+      } catch (_) {
+        setSnackMessage('No se pudo cargar la ficha a editar.');
+        setSnackVisible(true);
+      } finally {
+        setInitialLoading(false);
+      }
+    })();
+  }, [editId]);
+
+  const seleccionarImagenLocal = async () => {
+    try {
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.85,
+      });
+      if (!pickerResult.canceled && pickerResult.assets?.length > 0) {
+        setPickedAsset(pickerResult.assets[0]);
+        setSnackMessage('Archivo de imagen preparado para subir.');
+        setSnackVisible(true);
+      }
+    } catch (_) {
+      setSnackMessage('No se pudo abrir el selector de archivos.');
+      setSnackVisible(true);
+    }
+  };
 
   const agregarVacuna = () => {
     if (!nuevaVacunaNombre.trim()) {
-      setSnackMessage('Ingresa el nombre de la vacuna.');
+      setSnackMessage('Indica el nombre de la vacuna.');
       setSnackVisible(true);
       return;
     }
-    setVacunas(prev => [
+    setVacunas((prev) => [
       ...prev,
-      { nombre: nuevaVacunaNombre.trim(), fecha: nuevaVacunaFecha.trim(), proxima: nuevaVacunaProxima.trim(), veterinario: '' },
+      {
+        nombre: nuevaVacunaNombre.trim(),
+        fecha: nuevaVacunaFecha.trim() || new Date().toISOString().split('T')[0],
+        proxima: nuevaVacunaProxima.trim(),
+        veterinario: user?.rol === 'veterinario' ? user.nombre : '',
+      },
     ]);
     setNuevaVacunaNombre('');
     setNuevaVacunaFecha('');
     setNuevaVacunaProxima('');
   };
 
+  const agregarDocumentoLegal = () => {
+    if (!nuevoDocumento.trim()) return;
+    setDocumentosLegales((prev) => [...prev, nuevoDocumento.trim()]);
+    setNuevoDocumento('');
+  };
+
   const handleGuardar = async () => {
     if (!nombre.trim()) {
       setSeccion('basica');
-      setSnackMessage('El nombre de la mascota es obligatorio.');
-      setSnackVisible(true);
-      return;
-    }
-    if (!especie) {
-      setSnackMessage('Selecciona la especie.');
+      setSnackMessage('El nombre del animal es obligatorio.');
       setSnackVisible(true);
       return;
     }
 
     setLoading(true);
     try {
+      const docsFinales = [...documentosLegales];
+      if (nuevoDocumento.trim()) {
+        docsFinales.push(nuevoDocumento.trim());
+      }
+
       const mascotaData = {
         nombre: nombre.trim(),
         especie,
-        raza: raza.trim() || 'Mestizo/a',
-        edad_aprox: edad.trim(),
-        edad: parseFloat(edad) || undefined,
+        raza: raza.trim() || 'Mestizo',
+        edad_aprox: edad.trim() || null,
+        peso: peso ? parseFloat(peso) : null,
+        color: color.trim() || null,
         sexo,
         tamano,
-        peso: parseFloat(peso) || undefined,
-        color: color.trim(),
         estado,
-        ubicacion: ubicacion.trim(),
-        descripcion: descripcion.trim(),
-        comportamiento: comportamiento.trim(),
+        ubicacion: ubicacion.trim() || null,
+        descripcion: descripcion.trim() || null,
+        comportamiento: comportamiento.trim() || null,
         nivel_ejercicio: nivelEjercicio,
         compatible_ninos: compatNinos,
         compatible_perros: compatPerros,
         compatible_gatos: compatGatos,
-        fecha_rescate: fechaRescate.trim() || undefined,
-        lugar_rescate: lugarRescate.trim(),
-        // Salud
-        condicion_salud: condicionSalud.trim(),
+        fecha_rescate: fechaRescate.trim() || null,
+        lugar_rescate: lugarRescate.trim() || null,
+        id_rescate: idRescate ? parseInt(idRescate, 10) : null,
+        condicion_salud: condicionSalud.trim() || null,
         esterilizado,
         microchip,
-        numero_microchip: microchip ? numMicrochip.trim() : undefined,
+        numero_microchip: microchip ? numMicrochip.trim() : null,
         alergias: alergias.trim() || 'Ninguna',
         enfermedades_previas: enfermedades.trim() || 'Ninguna',
         medicamentos_actuales: medicamentos.trim() || 'Ninguno',
         vacunas,
-        // Alimentación
         alimentacion: {
           tipo: aliTipo.trim(),
           frecuencia: aliFrecuencia.trim(),
@@ -178,321 +297,611 @@ export default function NuevaMascotaScreen() {
           marca: aliMarca.trim(),
           restricciones: aliRestricciones.trim() || 'Ninguna',
         },
-        // Legal
-        documentos_legales: notasLegales.trim() ? [notasLegales.trim()] : [],
-        foto_principal: null,
-        fotos: [],
-        id_rescatista: user?.id_usuario,
+        documentos_legales: docsFinales,
+        ...(fotoUrlManual.trim() && !isEditing ? { foto_principal: fotoUrlManual.trim() } : {}),
       };
 
-      const result = await mascotasService.crear(mascotaData);
-      if (result.success) {
-        setSnackMessage(result.message || '¡Mascota registrada exitosamente!');
+      const result = isEditing
+        ? await mascotasService.actualizar(editId, mascotaData)
+        : await mascotasService.crear(mascotaData);
+
+      if (result.success && result.data) {
+        const targetId = result.data.id_mascota || editId;
+
+        if (pickedAsset) {
+          const fd = new FormData();
+          await appendAssetToFormData(fd, pickedAsset, 'foto');
+          await mascotasService.subirFotos(targetId, fd);
+        } else if (isEditing && fotoUrlManual.trim()) {
+          await mascotasService.subirFotos(targetId, { url_imagen: fotoUrlManual.trim() });
+        }
+
+        setSnackMessage(
+          isEditing
+            ? 'Ficha actualizada en Supabase.'
+            : 'Nueva ficha publicada en Supabase.'
+        );
         setSnackVisible(true);
-        setTimeout(() => router.back(), 1500);
+        setTimeout(() => {
+          router.replace(`/(tabs)/mascotas/${targetId}`);
+        }, 800);
       } else {
-        setSnackMessage(result.message || 'Error al registrar la mascota.');
+        setSnackMessage(result.message || 'No se pudo guardar la ficha.');
         setSnackVisible(true);
       }
     } catch (err) {
-      setSnackMessage('Error al guardar. Se guardó localmente.');
+      setSnackMessage(err.response?.data?.message || 'Error al guardar la ficha.');
       setSnackVisible(true);
     } finally {
       setLoading(false);
     }
   };
 
+  if (initialLoading) {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Editar ficha' }} />
+        <LoadingScreen message="Cargando ficha de mascota..." />
+      </>
+    );
+  }
+
   const secciones = [
-    { key: 'basica', label: 'Datos' },
-    { key: 'salud', label: 'Salud' },
-    { key: 'alimentacion', label: 'Nutrición' },
-    { key: 'legal', label: 'Legal' },
+    { key: 'basica', label: '1. Datos y fotografía' },
+    { key: 'salud', label: '2. Salud y vacunas' },
+    { key: 'alimentacion', label: '3. Nutrición' },
+    { key: 'legal', label: '4. Constancias' },
+  ];
+
+  const rescueOptions = [
+    { value: '', label: 'Sin vincular' },
+    ...rescatesDisponibles.slice(0, 8).map((r) => ({
+      value: String(r.id_rescate),
+      label: `#${r.id_rescate} · ${(r.ubicacion || 'Rescate').slice(0, 22)}`,
+    })),
   ];
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: theme.colors.background }}
+      style={{ flex: 1, backgroundColor: palette.canvas }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <Stack.Screen
-        options={{
-          title: 'Registrar Mascota',
-          headerShown: true,
-          headerStyle: { backgroundColor: theme.colors.surface },
-          headerTintColor: theme.colors.primary,
-        }}
-      />
+      <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Tabs de sección */}
-      <View style={[styles.tabRow, { borderBottomColor: theme.colors.outline, backgroundColor: theme.colors.surface }]}>
-        {secciones.map(s => (
-          <Pressable
-            key={s.key}
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <PageHeader
+          eyebrow={isEditing ? `EDICIÓN DE FICHA #${editId}` : 'NUEVO REGISTRO EN CATÁLOGO'}
+          title={isEditing ? 'Actualizar ficha de animal' : 'Publicar animal en resguardo'}
+          subtitle="Completa los apartados disponibles para facilitar la evaluación veterinaria y de adopción."
+          secondaryActionLabel="Volver"
+          onSecondaryAction={() => router.back()}
+          maxWidth={920}
+        />
+
+        <View style={styles.body}>
+          <View
             style={[
-              styles.tabItem,
-              seccion === s.key && { borderBottomColor: theme.colors.primary, borderBottomWidth: 2 },
+              styles.tabsBar,
+              { backgroundColor: palette.surface, borderColor: palette.border },
             ]}
-            onPress={() => setSeccion(s.key)}
           >
-            <Text
-              variant="labelMedium"
-              style={{ color: seccion === s.key ? theme.colors.primary : theme.colors.onSurfaceVariant, fontWeight: seccion === s.key ? '700' : '400' }}
-            >
-              {s.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* ============ SECCIÓN: DATOS BÁSICOS ============ */}
-        {seccion === 'basica' && (
-          <Card style={[styles.card, { backgroundColor: theme.colors.surface }]} elevation={1}>
-            <Card.Content>
-              <SectionHeader icon="paw" title="Información Básica" theme={theme} />
-
-              <TextInput label="Nombre de la mascota *" value={nombre} onChangeText={setNombre} mode="outlined" style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} left={<TextInput.Icon icon="paw" />} />
-
-              <Text variant="labelMedium" style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>Especie *</Text>
-              <View style={styles.chipsRow}>
-                {ESPECIES.map(e => (
-                  <Chip
-                    key={e.value}
-                    icon={e.icon}
-                    selected={especie === e.value}
-                    onPress={() => setEspecie(e.value)}
-                    style={[styles.chip, especie === e.value && { backgroundColor: theme.colors.primaryContainer }]}
-                    textStyle={{ color: especie === e.value ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant, fontSize: 12 }}
-                    showSelectedOverlay
+            {secciones.map((s) => {
+              const active = seccion === s.key;
+              return (
+                <Pressable
+                  key={s.key}
+                  onPress={() => setSeccion(s.key)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  style={[
+                    styles.tabBtn,
+                    active && { backgroundColor: palette.primary },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? palette.onPrimary : palette.ink,
+                      fontFamily: fonts.sans,
+                      fontSize: 13,
+                      fontWeight: active ? '700' : '500',
+                    }}
                   >
-                    {e.label}
-                  </Chip>
-                ))}
-              </View>
+                    {s.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
-              <TextInput label="Raza" value={raza} onChangeText={setRaza} mode="outlined" style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              <TextInput label="Edad (ej: 2 años, 6 meses)" value={edad} onChangeText={setEdad} mode="outlined" style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} left={<TextInput.Icon icon="calendar-range" />} />
-              <TextInput label="Peso (kg)" value={peso} onChangeText={setPeso} mode="outlined" keyboardType="decimal-pad" style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} left={<TextInput.Icon icon="weight" />} />
-              <TextInput label="Color / Pelaje" value={color} onChangeText={setColor} mode="outlined" style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} left={<TextInput.Icon icon="palette" />} />
+          {seccion === 'basica' && (
+            <>
+              <SectionSheet title="Identificación y características físicas">
+                <View style={[styles.twoCols, isWide && styles.twoColsWide]}>
+                  <FieldInput
+                    label="Nombre del animal *"
+                    value={nombre}
+                    onChangeText={setNombre}
+                    placeholder="Ej: Luna"
+                    style={isWide && styles.colHalf}
+                  />
+                  <FieldInput
+                    label="Raza o cruce"
+                    value={raza}
+                    onChangeText={setRaza}
+                    placeholder="Ej: Mestizo"
+                    style={isWide && styles.colHalf}
+                  />
+                </View>
 
-              <Text variant="labelMedium" style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>Sexo</Text>
-              <SegmentedButtons value={sexo} onValueChange={setSexo} buttons={SEXOS} style={styles.segmented} />
+                <OptionGroup
+                  label="Especie *"
+                  options={ESPECIES}
+                  value={especie}
+                  onChange={setEspecie}
+                />
 
-              <Text variant="labelMedium" style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>Tamaño</Text>
-              <SegmentedButtons value={tamano} onValueChange={setTamano} buttons={TAMANOS} style={styles.segmented} />
+                <View style={[styles.twoCols, isWide && styles.twoColsWide]}>
+                  <FieldInput
+                    label="Edad aproximada"
+                    value={edad}
+                    onChangeText={setEdad}
+                    placeholder="Ej: 2 años, 5 meses"
+                    style={isWide && styles.colHalf}
+                  />
+                  <FieldInput
+                    label="Peso estimado (kg)"
+                    value={peso}
+                    onChangeText={setPeso}
+                    keyboardType="decimal-pad"
+                    placeholder="Ej: 12.5"
+                    style={isWide && styles.colHalf}
+                  />
+                </View>
 
-              <Text variant="labelMedium" style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>Estado actual</Text>
-              <View style={styles.chipsRow}>
-                {ESTADOS.map(e => (
-                  <Chip
-                    key={e.value}
-                    selected={estado === e.value}
-                    onPress={() => setEstado(e.value)}
-                    style={[styles.chip, estado === e.value && { backgroundColor: theme.colors.secondaryContainer }]}
-                    textStyle={{ color: estado === e.value ? theme.colors.onSecondaryContainer : theme.colors.onSurfaceVariant, fontSize: 12 }}
-                    showSelectedOverlay
-                    compact
-                  >
-                    {e.label}
-                  </Chip>
-                ))}
-              </View>
+                <FieldInput
+                  label="Color y señas particulares"
+                  value={color}
+                  onChangeText={setColor}
+                  placeholder="Ej: Pelaje corto leonado con pecho blanco"
+                />
 
-              <Divider style={styles.divider} />
-              <SectionHeader icon="map-marker" title="Rescate y Ubicación" theme={theme} />
-              <TextInput label="Ubicación actual" value={ubicacion} onChangeText={setUbicacion} mode="outlined" style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} left={<TextInput.Icon icon="map-marker" />} />
-              <TextInput label="Fecha de rescate (AAAA-MM-DD)" value={fechaRescate} onChangeText={setFechaRescate} mode="outlined" style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} left={<TextInput.Icon icon="calendar" />} />
-              <TextInput label="Lugar de rescate" value={lugarRescate} onChangeText={setLugarRescate} mode="outlined" style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} left={<TextInput.Icon icon="map-search" />} />
+                <View style={[styles.twoCols, isWide && styles.twoColsWide]}>
+                  <OptionGroup
+                    label="Sexo"
+                    options={SEXOS}
+                    value={sexo}
+                    onChange={setSexo}
+                    style={isWide && styles.colHalf}
+                  />
+                  <OptionGroup
+                    label="Tamaño"
+                    options={TAMANOS}
+                    value={tamano}
+                    onChange={setTamano}
+                    style={isWide && styles.colHalf}
+                  />
+                </View>
 
-              <Divider style={styles.divider} />
-              <SectionHeader icon="text" title="Descripción y Comportamiento" theme={theme} />
-              <TextInput label="Descripción general" value={descripcion} onChangeText={setDescripcion} mode="outlined" multiline numberOfLines={4} style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              <TextInput label="Comportamiento y personalidad" value={comportamiento} onChangeText={setComportamiento} mode="outlined" multiline numberOfLines={3} style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
+                <OptionGroup
+                  label="Estado actual en el registro"
+                  options={ESTADOS}
+                  value={estado}
+                  onChange={setEstado}
+                />
+              </SectionSheet>
 
-              <Text variant="labelMedium" style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>Nivel de ejercicio requerido</Text>
-              <View style={styles.chipsRow}>
-                {NIVELES_EJERCICIO.map(n => (
-                  <Chip key={n.value} selected={nivelEjercicio === n.value} onPress={() => setNivelEjercicio(n.value)} style={[styles.chip, nivelEjercicio === n.value && { backgroundColor: theme.colors.tertiaryContainer || theme.colors.primaryContainer }]} compact showSelectedOverlay>
-                    {n.label}
-                  </Chip>
-                ))}
-              </View>
-
-              <Text variant="labelMedium" style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>Compatibilidad</Text>
-              <SwitchRow label="Compatible con niños" value={compatNinos} onChange={setCompatNinos} theme={theme} />
-              <SwitchRow label="Compatible con perros" value={compatPerros} onChange={setCompatPerros} theme={theme} />
-              <SwitchRow label="Compatible con gatos" value={compatGatos} onChange={setCompatGatos} theme={theme} />
-            </Card.Content>
-          </Card>
-        )}
-
-        {/* ============ SECCIÓN: SALUD ============ */}
-        {seccion === 'salud' && (
-          <Card style={[styles.card, { backgroundColor: theme.colors.surface }]} elevation={1}>
-            <Card.Content>
-              <SectionHeader icon="heart-pulse" title="Estado de Salud" theme={theme} />
-              <TextInput label="Condición de salud" value={condicionSalud} onChangeText={setCondicionSalud} mode="outlined" style={styles.input} placeholder="Ej: Excelente, Buena, Regular" outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              <SwitchRow label="Esterilizado/a" value={esterilizado} onChange={setEsterilizado} theme={theme} />
-              <SwitchRow label="Tiene microchip" value={microchip} onChange={setMicrochip} theme={theme} />
-              {microchip && (
-                <TextInput label="Número de microchip" value={numMicrochip} onChangeText={setNumMicrochip} mode="outlined" style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              )}
-              <TextInput label="Alergias conocidas" value={alergias} onChangeText={setAlergias} mode="outlined" style={styles.input} placeholder="Ej: Ninguna, Alergia al maíz" outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              <TextInput label="Enfermedades previas" value={enfermedades} onChangeText={setEnfermedades} mode="outlined" multiline numberOfLines={2} style={styles.input} placeholder="Ej: Ninguna, Parvovirus recuperado" outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              <TextInput label="Medicamentos actuales" value={medicamentos} onChangeText={setMedicamentos} mode="outlined" style={styles.input} placeholder="Ej: Ninguno, Suplemento vitamínico" outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-
-              <Divider style={styles.divider} />
-              <SectionHeader icon="needle" title="Vacunas" theme={theme} />
-              {vacunas.length === 0 ? (
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic', marginBottom: 12 }}>Sin vacunas agregadas aún.</Text>
-              ) : (
-                vacunas.map((v, i) => (
-                  <View key={i} style={[styles.vacunaChip, { backgroundColor: theme.colors.primaryContainer }]}>
-                    <MaterialCommunityIcons name="needle" size={16} color={theme.colors.primary} />
-                    <View style={{ flex: 1 }}>
-                      <Text variant="labelMedium" style={{ color: theme.colors.onPrimaryContainer }}>{v.nombre}</Text>
-                      {v.fecha ? <Text variant="bodySmall" style={{ color: theme.colors.onPrimaryContainer }}>Aplicada: {v.fecha}{v.proxima ? ' • Próxima: ' + v.proxima : ''}</Text> : null}
-                    </View>
-                    <Button mode="text" compact onPress={() => setVacunas(prev => prev.filter((_, idx) => idx !== i))} textColor={theme.colors.error}>Quitar</Button>
-                  </View>
-                ))
-              )}
-              <Text variant="labelSmall" style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>Agregar vacuna:</Text>
-              <TextInput label="Nombre de la vacuna" value={nuevaVacunaNombre} onChangeText={setNuevaVacunaNombre} mode="outlined" style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              <TextInput label="Fecha de aplicación (AAAA-MM-DD)" value={nuevaVacunaFecha} onChangeText={setNuevaVacunaFecha} mode="outlined" style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              <TextInput label="Próxima dosis (AAAA-MM-DD)" value={nuevaVacunaProxima} onChangeText={setNuevaVacunaProxima} mode="outlined" style={styles.input} outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              <Button mode="outlined" icon="plus" onPress={agregarVacuna} textColor={theme.colors.primary} style={{ borderColor: theme.colors.primary }}>
-                Agregar vacuna
-              </Button>
-            </Card.Content>
-          </Card>
-        )}
-
-        {/* ============ SECCIÓN: ALIMENTACIÓN ============ */}
-        {seccion === 'alimentacion' && (
-          <Card style={[styles.card, { backgroundColor: theme.colors.surface }]} elevation={1}>
-            <Card.Content>
-              <SectionHeader icon="food-apple" title="Plan de Alimentación" theme={theme} />
-              <TextInput label="Tipo de alimentación" value={aliTipo} onChangeText={setAliTipo} mode="outlined" style={styles.input} placeholder="Ej: Croquetas, Mixta, Cruda, Semillas" outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              <TextInput label="Frecuencia de comida" value={aliFrecuencia} onChangeText={setAliFrecuencia} mode="outlined" style={styles.input} placeholder="Ej: 2 veces al día" outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              <TextInput label="Cantidad por comida" value={aliCantidad} onChangeText={setAliCantidad} mode="outlined" style={styles.input} placeholder="Ej: 250 g, 2 cucharadas" outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              <TextInput label="Marca o producto recomendado" value={aliMarca} onChangeText={setAliMarca} mode="outlined" style={styles.input} placeholder="Ej: Royal Canin, Purina, Natural" outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-              <TextInput label="Restricciones alimenticias" value={aliRestricciones} onChangeText={setAliRestricciones} mode="outlined" multiline numberOfLines={2} style={styles.input} placeholder="Ej: Sin maíz, Sin lácteos, Ninguna" outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-            </Card.Content>
-          </Card>
-        )}
-
-        {/* ============ SECCIÓN: LEGAL ============ */}
-        {seccion === 'legal' && (
-          <Card style={[styles.card, { backgroundColor: theme.colors.surface }]} elevation={1}>
-            <Card.Content>
-              <SectionHeader icon="file-document" title="Documentación Legal" theme={theme} />
-              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12 }}>
-                Registra información legal del animal (actas de rescate, permisos MINEC, documentos de donación, etc.).
-              </Text>
-              <TextInput label="Notas o descripción del documento legal" value={notasLegales} onChangeText={setNotasLegales} mode="outlined" multiline numberOfLines={4} style={styles.input} placeholder="Ej: Acta de confiscación MINEC-2026-0127, Carta de donación voluntaria..." outlineColor={theme.colors.outline} activeOutlineColor={theme.colors.primary} />
-
-              <Button
-                mode="outlined"
-                icon="file-upload"
-                style={[styles.pdfBtn, { borderColor: '#E64A19' }]}
-                textColor="#E64A19"
-                onPress={() => {
-                  setSnackMessage('La importación de PDF estará disponible cuando el servidor esté activo.');
-                  setSnackVisible(true);
-                }}
+              <SectionSheet
+                title="Fotografía y procedencia"
+                subtitle="Sube un archivo desde tu equipo o indica una dirección de imagen verificada."
               >
-                Adjuntar documento legal (PDF)
-              </Button>
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                  <ActionButton
+                    label={
+                      pickedAsset
+                        ? 'Imagen local seleccionada (cambiar)'
+                        : 'Seleccionar fotografía del equipo'
+                    }
+                    variant="secondary"
+                    onPress={seleccionarImagenLocal}
+                  />
+                </View>
 
-              <View style={[styles.infoBox, { backgroundColor: theme.colors.primaryContainer || '#FFF3E0' }]}>
-                <MaterialCommunityIcons name="information" size={20} color={theme.colors.primary} />
-                <Text variant="bodySmall" style={{ color: theme.colors.onPrimaryContainer || '#E64A19', flex: 1 }}>
-                  Los documentos adjuntos se almacenarán en el servidor cuando haya conexión. En modo offline se guardará el texto descriptivo.
+                <FieldInput
+                  label="O enlace directo de fotografía (https://...)"
+                  value={fotoUrlManual}
+                  onChangeText={setFotoUrlManual}
+                  autoCapitalize="none"
+                  placeholder="https://..."
+                />
+
+                {rescatesDisponibles.length > 0 ? (
+                  <OptionGroup
+                    label="Vincular con operativo de rescate registrado (opcional)"
+                    options={rescueOptions}
+                    value={String(idRescate)}
+                    onChange={(val) => {
+                      setIdRescate(val);
+                      const found = rescatesDisponibles.find(
+                        (r) => String(r.id_rescate) === String(val)
+                      );
+                      if (found) {
+                        if (!lugarRescate && found.ubicacion) setLugarRescate(found.ubicacion);
+                        if (!fechaRescate && found.fecha_rescate) {
+                          setFechaRescate(String(found.fecha_rescate).split('T')[0]);
+                        }
+                      }
+                    }}
+                  />
+                ) : null}
+
+                <FieldInput
+                  label="Ubicación actual (hogar temporal o sede)"
+                  value={ubicacion}
+                  onChangeText={setUbicacion}
+                  placeholder="Ej: Hogar temporal en Los Olivos, Maracaibo"
+                />
+
+                <View style={[styles.twoCols, isWide && styles.twoColsWide]}>
+                  <FieldInput
+                    label="Fecha de rescate (AAAA-MM-DD)"
+                    value={fechaRescate}
+                    onChangeText={setFechaRescate}
+                    placeholder="2026-11-20"
+                    style={isWide && styles.colHalf}
+                  />
+                  <FieldInput
+                    label="Sector del hallazgo"
+                    value={lugarRescate}
+                    onChangeText={setLugarRescate}
+                    placeholder="Ej: Vereda del Lago"
+                    style={isWide && styles.colHalf}
+                  />
+                </View>
+              </SectionSheet>
+
+              <SectionSheet title="Carácter y convivencia">
+                <FieldInput
+                  label="Descripción general"
+                  value={descripcion}
+                  onChangeText={setDescripcion}
+                  multiline
+                  numberOfLines={4}
+                  placeholder="Historia del animal, estado anímico y necesidades de espacio."
+                />
+                <FieldInput
+                  label="Temperamento observado"
+                  value={comportamiento}
+                  onChangeText={setComportamiento}
+                  multiline
+                  numberOfLines={3}
+                  placeholder="Ej: Sociable con personas, camina con correa, tranquilo dentro de casa."
+                />
+
+                <OptionGroup
+                  label="Nivel de actividad física requerido"
+                  options={NIVELES_EJERCICIO}
+                  value={nivelEjercicio}
+                  onChange={setNivelEjercicio}
+                />
+
+                <SwitchItem
+                  label="Convive adecuadamente con niños"
+                  value={compatNinos}
+                  onChange={setCompatNinos}
+                  palette={palette}
+                  fonts={fonts}
+                />
+                <SwitchItem
+                  label="Convive adecuadamente con otros perros"
+                  value={compatPerros}
+                  onChange={setCompatPerros}
+                  palette={palette}
+                  fonts={fonts}
+                />
+                <SwitchItem
+                  label="Convive adecuadamente con gatos"
+                  value={compatGatos}
+                  onChange={setCompatGatos}
+                  palette={palette}
+                  fonts={fonts}
+                />
+              </SectionSheet>
+            </>
+          )}
+
+          {seccion === 'salud' && (
+            <SectionSheet title="Antecedentes clínicos y vacunación">
+              <FieldInput
+                label="Condición clínica general"
+                value={condicionSalud}
+                onChangeText={setCondicionSalud}
+                placeholder="Ej: Sano, desparasitado, en recuperación nutricional"
+              />
+              <SwitchItem
+                label="Animal esterilizado"
+                value={esterilizado}
+                onChange={setEsterilizado}
+                palette={palette}
+                fonts={fonts}
+              />
+              <SwitchItem
+                label="Posee microchip de identificación"
+                value={microchip}
+                onChange={setMicrochip}
+                palette={palette}
+                fonts={fonts}
+              />
+              {microchip ? (
+                <FieldInput
+                  label="Código de microchip"
+                  value={numMicrochip}
+                  onChangeText={setNumMicrochip}
+                />
+              ) : null}
+
+              <FieldInput label="Alergias conocidas" value={alergias} onChangeText={setAlergias} />
+              <FieldInput
+                label="Enfermedades o cirugías previas"
+                value={enfermedades}
+                onChangeText={setEnfermedades}
+                multiline
+                numberOfLines={2}
+              />
+              <FieldInput
+                label="Medicación activa"
+                value={medicamentos}
+                onChangeText={setMedicamentos}
+              />
+
+              <View style={[styles.subBlock, { borderTopColor: palette.border }]}>
+                <Text
+                  style={{
+                    color: palette.ink,
+                    fontFamily: fonts.serif,
+                    fontSize: 17,
+                    fontWeight: '600',
+                    marginBottom: 10,
+                  }}
+                >
+                  Dosis de vacunación ({vacunas.length})
                 </Text>
-              </View>
-            </Card.Content>
-          </Card>
-        )}
 
-        {/* Botón principal guardar */}
-        <View style={styles.saveRow}>
-          <Button
-            mode="outlined"
-            onPress={() => router.back()}
-            style={{ flex: 1, borderColor: theme.colors.outline }}
-            textColor={theme.colors.onSurfaceVariant}
-          >
-            Cancelar
-          </Button>
-          <Button
-            mode="contained"
-            icon="content-save"
-            onPress={handleGuardar}
-            loading={loading}
-            disabled={loading}
-            style={{ flex: 2, borderRadius: 8 }}
-            buttonColor={theme.colors.primary}
-            textColor={theme.colors.onPrimary}
-            contentStyle={{ paddingVertical: 4 }}
-          >
-            {loading ? 'Guardando...' : 'Registrar Mascota'}
-          </Button>
+                {vacunas.map((v, i) => (
+                  <View
+                    key={`vac-row-${i}`}
+                    style={[
+                      styles.addedItem,
+                      {
+                        backgroundColor: palette.surfaceSubtle,
+                        borderColor: palette.border,
+                      },
+                    ]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: palette.ink, fontFamily: fonts.sans, fontWeight: '700' }}>
+                        {v.nombre}
+                      </Text>
+                      <Text style={{ color: palette.inkSecondary, fontFamily: fonts.mono, fontSize: 12 }}>
+                        Aplicada: {v.fecha || 'N/D'}
+                        {v.proxima ? ` · Próxima: ${v.proxima}` : ''}
+                      </Text>
+                    </View>
+                    <ActionButton
+                      label="Quitar"
+                      variant="dangerOutline"
+                      compact
+                      onPress={() => setVacunas((prev) => prev.filter((_, idx) => idx !== i))}
+                    />
+                  </View>
+                ))}
+
+                <FieldInput
+                  label="Nombre de vacuna"
+                  value={nuevaVacunaNombre}
+                  onChangeText={setNuevaVacunaNombre}
+                  placeholder="Ej: Séxtuple canina, Antirrábica, Triple felina"
+                />
+                <View style={[styles.twoCols, isWide && styles.twoColsWide]}>
+                  <FieldInput
+                    label="Fecha aplicación (AAAA-MM-DD)"
+                    value={nuevaVacunaFecha}
+                    onChangeText={setNuevaVacunaFecha}
+                    placeholder="2026-11-24"
+                    style={isWide && styles.colHalf}
+                  />
+                  <FieldInput
+                    label="Próximo refuerzo (AAAA-MM-DD)"
+                    value={nuevaVacunaProxima}
+                    onChangeText={setNuevaVacunaProxima}
+                    placeholder="2027-11-24"
+                    style={isWide && styles.colHalf}
+                  />
+                </View>
+                <ActionButton label="Añadir vacuna a la lista" variant="secondary" onPress={agregarVacuna} />
+              </View>
+            </SectionSheet>
+          )}
+
+          {seccion === 'alimentacion' && (
+            <SectionSheet title="Pauta nutricional recomendada">
+              <FieldInput
+                label="Tipo de alimento"
+                value={aliTipo}
+                onChangeText={setAliTipo}
+                placeholder="Ej: Alimento seco adulto, dieta blanda mixta"
+              />
+              <View style={[styles.twoCols, isWide && styles.twoColsWide]}>
+                <FieldInput
+                  label="Frecuencia diaria"
+                  value={aliFrecuencia}
+                  onChangeText={setAliFrecuencia}
+                  placeholder="Ej: 2 tomas diarias"
+                  style={isWide && styles.colHalf}
+                />
+                <FieldInput
+                  label="Cantidad por toma"
+                  value={aliCantidad}
+                  onChangeText={setAliCantidad}
+                  placeholder="Ej: 220 gramos"
+                  style={isWide && styles.colHalf}
+                />
+              </View>
+              <FieldInput
+                label="Marca o fórmula habitual"
+                value={aliMarca}
+                onChangeText={setAliMarca}
+              />
+              <FieldInput
+                label="Restricciones o cuidados digestivos"
+                value={aliRestricciones}
+                onChangeText={setAliRestricciones}
+                multiline
+                numberOfLines={2}
+              />
+            </SectionSheet>
+          )}
+
+          {seccion === 'legal' && (
+            <SectionSheet
+              title="Constancias y soporte documental"
+              subtitle="Registra números de actas de rescate, entregas voluntarias o certificados clínicos."
+            >
+              {documentosLegales.map((doc, idx) => (
+                <View
+                  key={`doc-${idx}`}
+                  style={[
+                    styles.addedItem,
+                    {
+                      backgroundColor: palette.surfaceSubtle,
+                      borderColor: palette.border,
+                    },
+                  ]}
+                >
+                  <Text style={{ flex: 1, color: palette.ink, fontFamily: fonts.sans, fontSize: 13.5 }}>
+                    {doc}
+                  </Text>
+                  <ActionButton
+                    label="Quitar"
+                    variant="dangerOutline"
+                    compact
+                    onPress={() => setDocumentosLegales((prev) => prev.filter((_, i) => i !== idx))}
+                  />
+                </View>
+              ))}
+
+              <FieldInput
+                label="Identificador o descripción del documento"
+                value={nuevoDocumento}
+                onChangeText={setNuevoDocumento}
+                placeholder="Ej: Acta de resguardo Fundación Huellas #FH-2026-105"
+              />
+              <ActionButton
+                label="Añadir documento a la ficha"
+                variant="secondary"
+                onPress={agregarDocumentoLegal}
+              />
+            </SectionSheet>
+          )}
+
+          <View style={styles.saveBar}>
+            <ActionButton
+              label="Cancelar"
+              variant="secondary"
+              onPress={() => router.back()}
+              style={{ flex: 1 }}
+            />
+            <ActionButton
+              label={
+                loading
+                  ? 'Guardando en Supabase...'
+                  : isEditing
+                  ? 'Guardar cambios de ficha'
+                  : 'Publicar ficha en catálogo'
+              }
+              variant="primary"
+              loading={loading}
+              onPress={handleGuardar}
+              style={{ flex: 2 }}
+            />
+          </View>
         </View>
       </ScrollView>
 
-      <Snackbar
-        visible={snackVisible}
-        onDismiss={() => setSnackVisible(false)}
-        duration={3500}
-        action={{ label: 'OK', onPress: () => setSnackVisible(false) }}
-      >
+      <Snackbar visible={snackVisible} onDismiss={() => setSnackVisible(false)} duration={3200}>
         {snackMessage}
       </Snackbar>
     </KeyboardAvoidingView>
   );
 }
 
-function SectionHeader({ icon, title, theme }) {
+function SwitchItem({ label, value, onChange, palette, fonts }) {
   return (
-    <View style={[styles.sectionHeader, { borderLeftColor: theme.colors.primary }]}>
-      <MaterialCommunityIcons name={icon} size={20} color={theme.colors.primary} />
-      <Text variant="titleSmall" style={{ color: theme.colors.onSurface, fontWeight: '700' }}>{title}</Text>
+    <View style={[styles.switchRow, { borderColor: palette.border }]}>
+      <Text style={{ flex: 1, color: palette.ink, fontFamily: fonts.sans, fontSize: 14 }}>
+        {label}
+      </Text>
+      <Switch value={value} onValueChange={onChange} color={palette.primary} />
     </View>
   );
 }
-
-function SwitchRow({ label, value, onChange, theme }) {
-  return (
-    <View style={styles.switchRow}>
-      <Text variant="bodyMedium" style={{ color: theme.colors.onSurface, flex: 1 }}>{label}</Text>
-      <Switch value={value} onValueChange={onChange} color={theme.colors.primary} />
-    </View>
-  );
-}
-
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    padding: 16,
+  scroll: {
+    flexGrow: 1,
     paddingBottom: 48,
-    maxWidth: 900,
+  },
+  body: {
+    maxWidth: 920,
     width: '100%',
     alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 18,
   },
-  card: { borderRadius: 12, marginBottom: 12 },
-  tabRow: { flexDirection: 'row', borderBottomWidth: 1 },
-  tabItem: { flex: 1, alignItems: 'center', paddingVertical: 10 },
-  input: { marginBottom: 12 },
-  label: { marginBottom: 6, marginTop: 4 },
-  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
-  chip: { marginBottom: 2 },
-  segmented: { marginBottom: 14 },
-  divider: { marginVertical: 16 },
-  switchRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, marginBottom: 4 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14, borderLeftWidth: 3, paddingLeft: 8 },
-  vacunaChip: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderRadius: 8, marginBottom: 8 },
-  pdfBtn: { marginBottom: 12, borderRadius: 8 },
-  infoBox: { flexDirection: 'row', gap: 8, padding: 12, borderRadius: 8, alignItems: 'flex-start' },
-  saveRow: { flexDirection: 'row', gap: 10, marginTop: 8, marginBottom: 20 },
+  tabsBar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    gap: 4,
+    marginBottom: 16,
+  },
+  tabBtn: {
+    flex: 1,
+    minWidth: 140,
+    minHeight: 44,
+    borderRadius: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  twoCols: { flexDirection: 'column' },
+  twoColsWide: { flexDirection: 'row', gap: 14 },
+  colHalf: { flex: 1 },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+  },
+  subBlock: {
+    borderTopWidth: 1,
+    marginTop: 14,
+    paddingTop: 16,
+  },
+  addedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 4,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  saveBar: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+  },
 });

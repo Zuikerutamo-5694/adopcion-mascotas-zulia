@@ -1,4 +1,5 @@
 const { Router } = require('express');
+const { param } = require('express-validator');
 const mascotasController = require('../controllers/mascotas.controller');
 const expedientesController = require('../controllers/expedientes.controller');
 const {
@@ -7,18 +8,15 @@ const {
   listMascotasValidator,
   idParamValidator,
 } = require('../validators/mascotas.validator');
+const { createExpedienteValidator } = require('../validators/expedientes.validator');
 const { verifyToken, requireRole } = require('../middlewares/auth');
 const upload = require('../middlewares/upload');
 
 const router = Router();
 
-// GET /api/mascotas – Public listing with filters and pagination
 router.get('/', listMascotasValidator, mascotasController.list);
-
-// GET /api/mascotas/:id – Public single pet detail
 router.get('/:id', idParamValidator, mascotasController.getById);
 
-// POST /api/mascotas – Rescatista, Veterinario, or Admin can publish
 router.post(
   '/',
   verifyToken,
@@ -27,7 +25,6 @@ router.post(
   mascotasController.create
 );
 
-// PUT & PATCH /api/mascotas/:id – Update pet (rescatista, veterinario, admin)
 router.put(
   '/:id',
   verifyToken,
@@ -44,7 +41,6 @@ router.patch(
   mascotasController.update
 );
 
-// DELETE /api/mascotas/:id – Delete pet (rescatista, admin)
 router.delete(
   '/:id',
   verifyToken,
@@ -53,20 +49,42 @@ router.delete(
   mascotasController.remove
 );
 
-// POST /api/mascotas/:id/fotos – Upload photos (rescatista, veterinario, admin)
 router.post(
   '/:id/fotos',
   verifyToken,
   requireRole('rescatista', 'veterinario', 'administrador'),
-  upload.any(),
+  idParamValidator,
+  upload.fields([
+    { name: 'foto', maxCount: 5 },
+    { name: 'fotos', maxCount: 5 },
+  ]),
   mascotasController.uploadPhotos
 );
 
-// Expediente médico asociado a la mascota
-// GET /api/mascotas/:id/expediente
+router.patch(
+  '/:id/fotos/:fotoId/principal',
+  verifyToken,
+  requireRole('rescatista', 'veterinario', 'administrador'),
+  [
+    param('id').isInt({ min: 1 }).withMessage('ID de mascota inválido'),
+    param('fotoId').isInt({ min: 1 }).withMessage('ID de foto inválido'),
+  ],
+  mascotasController.setPrincipalPhoto
+);
+
+router.delete(
+  '/:id/fotos/:fotoId',
+  verifyToken,
+  requireRole('rescatista', 'veterinario', 'administrador'),
+  [
+    param('id').isInt({ min: 1 }).withMessage('ID de mascota inválido'),
+    param('fotoId').isInt({ min: 1 }).withMessage('ID de foto inválido'),
+  ],
+  mascotasController.deletePhoto
+);
+
 router.get('/:id/expediente', verifyToken, idParamValidator, expedientesController.getByMascota);
 
-// POST /api/mascotas/:id/expediente
 router.post(
   '/:id/expediente',
   verifyToken,
@@ -75,6 +93,7 @@ router.post(
     req.body.id_mascota = parseInt(req.params.id, 10);
     next();
   },
+  createExpedienteValidator,
   expedientesController.create
 );
 

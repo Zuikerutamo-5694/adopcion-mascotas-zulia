@@ -1,96 +1,145 @@
 import React, { useState, useEffect } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
-import {
-  Text,
-  TextInput,
-  Button,
-  Card,
-  Divider,
-  useTheme,
-  Snackbar,
-} from 'react-native-paper';
-import { useLocalSearchParams, Stack } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Snackbar } from 'react-native-paper';
+import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import expedientesService from '../../../src/services/expedientes.service';
+import mascotasService from '../../../src/services/mascotas.service';
+import { useAuth } from '../../../src/hooks/useAuth';
+import { useAppTheme } from '../../../src/contexts/ThemeContext';
 import LoadingScreen from '../../../src/components/LoadingScreen';
 import ErrorMessage from '../../../src/components/ErrorMessage';
+import {
+  PageHeader,
+  SectionSheet,
+  FieldInput,
+  ActionButton,
+} from '../../../src/components/ui';
 
 export default function ExpedienteScreen() {
-  const theme = useTheme();
+  const { palette, fonts } = useAppTheme();
+  const router = useRouter();
   const { mascotaId } = useLocalSearchParams();
+  const { user } = useAuth();
+  const { width } = useWindowDimensions();
+  const isWide = width >= 680;
 
+  const rol = user?.rol?.toLowerCase() || '';
+  const canEdit = rol === 'veterinario' || rol === 'administrador' || rol === 'admin';
+
+  const [mascota, setMascota] = useState(null);
   const [expediente, setExpediente] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isNew, setIsNew] = useState(false);
 
-  // Campos del formulario
   const [diagnostico, setDiagnostico] = useState('');
   const [tratamiento, setTratamiento] = useState('');
-  const [vacunas, setVacunas] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [peso, setPeso] = useState('');
   const [temperatura, setTemperatura] = useState('');
+
+  const [vacunas, setVacunas] = useState([]);
+  const [nuevaVacunaNombre, setNuevaVacunaNombre] = useState('');
+  const [nuevaVacunaFecha, setNuevaVacunaFecha] = useState('');
+  const [nuevaVacunaProxima, setNuevaVacunaProxima] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [snackMessage, setSnackMessage] = useState('');
   const [snackVisible, setSnackVisible] = useState(false);
 
   useEffect(() => {
-    fetchExpediente();
+    if (mascotaId) {
+      fetchData();
+    }
   }, [mascotaId]);
 
-  const fetchExpediente = async () => {
+  const fetchData = async () => {
     try {
       setLoading(true);
       setError('');
-      const result = await expedientesService.obtener(mascotaId);
-      if (result.success && result.data) {
-        const raw = result.data;
-        const exp = Array.isArray(raw) ? raw[0] : raw;
-        if (exp) {
-          setExpediente(exp);
-          setDiagnostico(exp.diagnostico || '');
-          setTratamiento(exp.tratamientos || exp.tratamiento || '');
-          setVacunas(
-            Array.isArray(exp.vacunas)
-              ? exp.vacunas.map(v => typeof v === 'object' ? (v.nombre || JSON.stringify(v)) : v).join(', ')
-              : (typeof exp.vacunas === 'string' ? exp.vacunas : '')
-          );
-          setObservaciones(exp.observaciones || '');
-          setPeso(exp.peso ? String(exp.peso) : '');
-          setTemperatura(exp.temperatura ? String(exp.temperatura) : '');
-          setIsNew(false);
-        } else {
-          setIsNew(true);
-          setExpediente(null);
-        }
+
+      const [petRes, expRes] = await Promise.all([
+        mascotasService.obtener(mascotaId),
+        expedientesService.obtener(mascotaId),
+      ]);
+
+      if (petRes.success) {
+        setMascota(petRes.data);
+      }
+
+      if (expRes.success && Array.isArray(expRes.data) && expRes.data.length > 0) {
+        const latest = expRes.data[0];
+        setExpediente(latest);
+        setDiagnostico(latest.diagnostico || '');
+        setTratamiento(latest.tratamientos || latest.tratamiento || '');
+        setObservaciones(latest.observaciones || '');
+        setPeso(latest.peso !== null && latest.peso !== undefined ? String(latest.peso) : '');
+        setTemperatura(
+          latest.temperatura !== null && latest.temperatura !== undefined
+            ? String(latest.temperatura)
+            : ''
+        );
+        setVacunas(
+          Array.isArray(latest.vacunas)
+            ? latest.vacunas.map((v) =>
+                typeof v === 'string'
+                  ? { nombre: v, fecha: '', proxima: '' }
+                  : {
+                      nombre: v.nombre || '',
+                      fecha: v.fecha || '',
+                      proxima: v.proxima || '',
+                      veterinario: v.veterinario || '',
+                    }
+              )
+            : []
+        );
+        setIsNew(false);
       } else {
-        // No tiene expediente aún
         setIsNew(true);
         setExpediente(null);
+        if (petRes.success && petRes.data) {
+          if (petRes.data.peso) setPeso(String(petRes.data.peso));
+          if (Array.isArray(petRes.data.vacunas)) setVacunas(petRes.data.vacunas);
+        }
       }
     } catch (err) {
-      if (err.response?.status === 404) {
-        setIsNew(true);
-        setExpediente(null);
-      } else {
-        setError('Error al cargar expediente médico.');
-      }
+      setError(err.response?.data?.message || 'Error al cargar la historia clínica.');
     } finally {
       setLoading(false);
     }
   };
 
+  const agregarVacuna = () => {
+    if (!nuevaVacunaNombre.trim()) {
+      setSnackMessage('Indica el nombre de la vacuna.');
+      setSnackVisible(true);
+      return;
+    }
+    setVacunas((prev) => [
+      ...prev,
+      {
+        nombre: nuevaVacunaNombre.trim(),
+        fecha: nuevaVacunaFecha.trim() || new Date().toISOString().split('T')[0],
+        proxima: nuevaVacunaProxima.trim(),
+        veterinario: user?.nombre || '',
+      },
+    ]);
+    setNuevaVacunaNombre('');
+    setNuevaVacunaFecha('');
+    setNuevaVacunaProxima('');
+  };
+
   const handleSave = async () => {
     if (!diagnostico.trim()) {
-      setSnackMessage('El diagnóstico es requerido.');
+      setSnackMessage('El diagnóstico clínico es obligatorio.');
       setSnackVisible(true);
       return;
     }
@@ -99,40 +148,31 @@ export default function ExpedienteScreen() {
     try {
       const expData = {
         diagnostico: diagnostico.trim(),
-        tratamiento: tratamiento.trim() || undefined,
-        vacunas: vacunas
-          .split(',')
-          .map((v) => v.trim())
-          .filter(Boolean),
-        observaciones: observaciones.trim() || undefined,
-        peso: peso ? parseFloat(peso) : undefined,
-        temperatura: temperatura ? parseFloat(temperatura) : undefined,
+        tratamientos: tratamiento.trim() || null,
+        observaciones: observaciones.trim() || null,
+        peso: peso ? parseFloat(peso) : null,
+        temperatura: temperatura ? parseFloat(temperatura) : null,
+        vacunas,
       };
 
-      let result;
-      if (isNew) {
-        result = await expedientesService.crear(mascotaId, expData);
-      } else {
-        const expId = expediente.id_expediente || expediente._id || expediente.id;
-        result = await expedientesService.actualizar(expId, expData);
-      }
+      const result = isNew
+        ? await expedientesService.crear(mascotaId, expData)
+        : await expedientesService.actualizar(expediente.id_expediente, expData);
 
       if (result.success) {
         setSnackMessage(
           isNew
-            ? '¡Expediente creado exitosamente!'
-            : '¡Expediente actualizado exitosamente!'
+            ? 'Historia médica abierta y sincronizada con la ficha.'
+            : 'Cambios clínicos guardados en Supabase.'
         );
         setSnackVisible(true);
-        setIsNew(false);
-        if (result.data) setExpediente(result.data);
+        await fetchData();
       } else {
-        setSnackMessage(result.message || 'Error al guardar expediente.');
+        setSnackMessage(result.message || 'No se pudo guardar el registro.');
         setSnackVisible(true);
       }
     } catch (err) {
-      const msg = err.response?.data?.message || 'Error al guardar expediente.';
-      setSnackMessage(msg);
+      setSnackMessage(err.response?.data?.message || 'Error al guardar la historia médica.');
       setSnackVisible(true);
     } finally {
       setSaving(false);
@@ -142,8 +182,8 @@ export default function ExpedienteScreen() {
   if (loading) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Expediente', headerShown: true }} />
-        <LoadingScreen message="Cargando expediente..." />
+        <Stack.Screen options={{ headerShown: false }} />
+        <LoadingScreen message="Cargando historia clínica..." />
       </>
     );
   }
@@ -151,253 +191,247 @@ export default function ExpedienteScreen() {
   if (error) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Error', headerShown: true }} />
-        <ErrorMessage message={error} onRetry={fetchExpediente} />
+        <Stack.Screen options={{ headerShown: false }} />
+        <ErrorMessage message={error} onRetry={fetchData} />
       </>
     );
   }
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: palette.canvas }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <Stack.Screen
-          options={{
-            title: isNew ? 'Crear Expediente' : 'Expediente Médico',
-            headerShown: true,
-            headerStyle: { backgroundColor: theme.colors.surface },
-            headerTintColor: theme.colors.primary,
-          }}
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <PageHeader
+          eyebrow={`HISTORIA CLÍNICA · PACIENTE #${String(mascotaId).padStart(3, '0')}`}
+          title={mascota ? `Paciente: ${mascota.nombre}` : 'Evaluación veterinaria'}
+          subtitle={
+            expediente?.veterinario_nombre
+              ? `Última actualización por ${expediente.veterinario_nombre} el ${new Date(
+                  expediente.fecha_actualizacion
+                ).toLocaleDateString('es-VE')}`
+              : 'Apertura de evaluación inicial para animal en resguardo.'
+          }
+          secondaryActionLabel="Volver a bandeja"
+          onSecondaryAction={() => router.back()}
+          actionLabel={mascota ? 'Ver ficha pública' : undefined}
+          onAction={mascota ? () => router.push(`/(tabs)/mascotas/${mascotaId}`) : undefined}
+          actionVariant="secondary"
+          maxWidth={840}
         />
 
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Card
-            style={[styles.card, { backgroundColor: theme.colors.surface }]}
-            elevation={2}
-          >
-            <Card.Content style={styles.cardContent}>
-              <View style={styles.iconRow}>
-                <MaterialCommunityIcons
-                  name="medical-bag"
-                  size={36}
-                  color={theme.colors.secondary}
-                />
-                <Text
-                  variant="titleLarge"
-                  style={{ color: theme.colors.onSurface, fontWeight: '700' }}
-                >
-                  {isNew ? 'Nuevo Expediente' : 'Expediente Médico'}
-                </Text>
-              </View>
+        <View style={styles.body}>
+          {isNew ? (
+            <View
+              style={[
+                styles.noticeBox,
+                {
+                  backgroundColor: palette.status.warning.bg,
+                  borderColor: palette.status.warning.border,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  color: palette.status.warning.fg,
+                  fontFamily: fonts.sans,
+                  fontSize: 13.5,
+                  fontWeight: '500',
+                }}
+              >
+                Este paciente aún no cuenta con historia médica abierta. Completa el diagnóstico inicial para habilitar su respaldo sanitario.
+              </Text>
+            </View>
+          ) : null}
 
-              {isNew && (
+          <SectionSheet title="1. Signos vitales y examen físico">
+            <View style={[styles.twoCols, isWide && styles.twoColsWide]}>
+              <FieldInput
+                label="Peso corporal (kg)"
+                value={peso}
+                onChangeText={setPeso}
+                keyboardType="numeric"
+                placeholder="Ej: 14.2"
+                disabled={saving || !canEdit}
+                style={isWide && styles.colHalf}
+              />
+              <FieldInput
+                label="Temperatura rectal (°C)"
+                value={temperatura}
+                onChangeText={setTemperatura}
+                keyboardType="numeric"
+                placeholder="Ej: 38.5"
+                disabled={saving || !canEdit}
+                style={isWide && styles.colHalf}
+              />
+            </View>
+
+            <FieldInput
+              label="Diagnóstico clínico *"
+              value={diagnostico}
+              onChangeText={setDiagnostico}
+              multiline
+              numberOfLines={4}
+              placeholder="Estado general, mucosas, piel, auscultación y hallazgos."
+              disabled={saving || !canEdit}
+            />
+
+            <FieldInput
+              label="Tratamiento prescrito"
+              value={tratamiento}
+              onChangeText={setTratamiento}
+              multiline
+              numberOfLines={3}
+              placeholder="Fármacos, posología y duración."
+              disabled={saving || !canEdit}
+            />
+
+            <FieldInput
+              label="Observaciones y controles futuros"
+              value={observaciones}
+              onChangeText={setObservaciones}
+              multiline
+              numberOfLines={3}
+              disabled={saving || !canEdit}
+            />
+          </SectionSheet>
+
+          <SectionSheet title={`2. Esquema de vacunación (${vacunas.length})`}>
+            {vacunas.length === 0 ? (
+              <Text
+                style={{
+                  color: palette.inkSecondary,
+                  fontFamily: fonts.sans,
+                  fontSize: 13.5,
+                  marginBottom: 14,
+                }}
+              >
+                No hay dosis registradas todavía.
+              </Text>
+            ) : (
+              vacunas.map((v, idx) => (
                 <View
+                  key={`${v.nombre}-${idx}`}
                   style={[
-                    styles.infoBox,
-                    { backgroundColor: theme.colors.secondaryContainer },
+                    styles.vacRow,
+                    {
+                      backgroundColor: palette.surfaceSubtle,
+                      borderColor: palette.border,
+                    },
                   ]}
                 >
-                  <MaterialCommunityIcons
-                    name="information"
-                    size={20}
-                    color={theme.colors.secondary}
-                  />
-                  <Text style={{ color: theme.colors.onSecondaryContainer, flex: 1 }}>
-                    Esta mascota aún no tiene expediente médico. Completa los datos para crear uno.
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: palette.ink, fontFamily: fonts.sans, fontWeight: '700' }}>
+                      {v.nombre}
+                    </Text>
+                    <Text style={{ color: palette.inkSecondary, fontFamily: fonts.mono, fontSize: 12 }}>
+                      Aplicada: {v.fecha || 'N/D'}
+                      {v.proxima ? ` · Próxima: ${v.proxima}` : ''}
+                    </Text>
+                  </View>
+                  {canEdit ? (
+                    <ActionButton
+                      label="Quitar"
+                      variant="dangerOutline"
+                      compact
+                      onPress={() => setVacunas((prev) => prev.filter((_, i) => i !== idx))}
+                    />
+                  ) : null}
                 </View>
-              )}
+              ))
+            )}
 
-              <Divider style={styles.divider} />
-
-              {/* Signos vitales */}
-              <Text
-                variant="labelLarge"
-                style={[styles.sectionLabel, { color: theme.colors.onSurface }]}
-              >
-                Signos vitales
-              </Text>
-
-              <View style={styles.row}>
-                <TextInput
-                  label="Peso (kg)"
-                  value={peso}
-                  onChangeText={setPeso}
-                  mode="outlined"
-                  keyboardType="numeric"
-                  left={<TextInput.Icon icon="weight" />}
-                  style={[styles.input, styles.halfInput]}
-                  outlineColor={theme.colors.outline}
-                  activeOutlineColor={theme.colors.primary}
-                  disabled={saving}
+            {canEdit ? (
+              <View style={[styles.addBlock, { borderTopColor: palette.border }]}>
+                <FieldInput
+                  label="Vacuna o biológico"
+                  value={nuevaVacunaNombre}
+                  onChangeText={setNuevaVacunaNombre}
+                  placeholder="Ej: Antirrábica, Séxtuple, Triple felina"
                 />
-                <TextInput
-                  label="Temperatura (°C)"
-                  value={temperatura}
-                  onChangeText={setTemperatura}
-                  mode="outlined"
-                  keyboardType="numeric"
-                  left={<TextInput.Icon icon="thermometer" />}
-                  style={[styles.input, styles.halfInput]}
-                  outlineColor={theme.colors.outline}
-                  activeOutlineColor={theme.colors.primary}
-                  disabled={saving}
+                <View style={[styles.twoCols, isWide && styles.twoColsWide]}>
+                  <FieldInput
+                    label="Fecha aplicación (AAAA-MM-DD)"
+                    value={nuevaVacunaFecha}
+                    onChangeText={setNuevaVacunaFecha}
+                    placeholder="2026-11-24"
+                    style={isWide && styles.colHalf}
+                  />
+                  <FieldInput
+                    label="Próximo refuerzo (AAAA-MM-DD)"
+                    value={nuevaVacunaProxima}
+                    onChangeText={setNuevaVacunaProxima}
+                    placeholder="2027-11-24"
+                    style={isWide && styles.colHalf}
+                  />
+                </View>
+                <ActionButton
+                  label="Incorporar vacuna al esquema"
+                  variant="secondary"
+                  onPress={agregarVacuna}
                 />
               </View>
+            ) : null}
+          </SectionSheet>
 
-              <Divider style={styles.divider} />
-
-              {/* Diagnóstico y tratamiento */}
-              <Text
-                variant="labelLarge"
-                style={[styles.sectionLabel, { color: theme.colors.onSurface }]}
-              >
-                Diagnóstico y tratamiento
-              </Text>
-
-              <TextInput
-                label="Diagnóstico *"
-                value={diagnostico}
-                onChangeText={setDiagnostico}
-                mode="outlined"
-                multiline
-                numberOfLines={4}
-                left={<TextInput.Icon icon="stethoscope" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
-                disabled={saving}
-              />
-
-              <TextInput
-                label="Tratamiento"
-                value={tratamiento}
-                onChangeText={setTratamiento}
-                mode="outlined"
-                multiline
-                numberOfLines={3}
-                left={<TextInput.Icon icon="pill" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
-                disabled={saving}
-              />
-
-              <TextInput
-                label="Vacunas (separadas por coma)"
-                value={vacunas}
-                onChangeText={setVacunas}
-                mode="outlined"
-                left={<TextInput.Icon icon="needle" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
-                disabled={saving}
-                placeholder="Ej: Rabia, Parvovirus, Moquillo"
-              />
-
-              <TextInput
-                label="Observaciones"
-                value={observaciones}
-                onChangeText={setObservaciones}
-                mode="outlined"
-                multiline
-                numberOfLines={3}
-                left={<TextInput.Icon icon="note-text" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
-                disabled={saving}
-              />
-
-              <Button
-                mode="contained"
-                onPress={handleSave}
-                loading={saving}
-                disabled={saving}
-                style={styles.saveButton}
-                contentStyle={styles.saveContent}
-                buttonColor={theme.colors.secondary}
-                icon={isNew ? 'plus' : 'content-save'}
-              >
-                {saving
-                  ? 'Guardando...'
+          {canEdit ? (
+            <ActionButton
+              label={
+                saving
+                  ? 'Guardando en Supabase...'
                   : isNew
-                  ? 'Crear Expediente'
-                  : 'Actualizar Expediente'}
-              </Button>
-            </Card.Content>
-          </Card>
-        </ScrollView>
+                  ? 'Abrir historia médica oficial'
+                  : 'Guardar actualización clínica'
+              }
+              variant="primary"
+              fullWidth
+              loading={saving}
+              onPress={handleSave}
+            />
+          ) : null}
+        </View>
+      </ScrollView>
 
-        <Snackbar
-          visible={snackVisible}
-          onDismiss={() => setSnackVisible(false)}
-          duration={3000}
-        >
-          {snackMessage}
-        </Snackbar>
-      </View>
+      <Snackbar visible={snackVisible} onDismiss={() => setSnackVisible(false)} duration={3000}>
+        {snackMessage}
+      </Snackbar>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-  },
-  card: {
-    borderRadius: 16,
-    maxWidth: 700,
-    alignSelf: 'center',
+  scroll: { flexGrow: 1, paddingBottom: 44 },
+  body: {
+    maxWidth: 840,
     width: '100%',
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 18,
   },
-  cardContent: {
-    padding: 24,
+  noticeBox: {
+    padding: 14,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginBottom: 16,
   },
-  iconRow: {
+  twoCols: { flexDirection: 'column' },
+  twoColsWide: { flexDirection: 'row', gap: 14 },
+  colHalf: { flex: 1 },
+  vacRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  infoBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
     padding: 12,
-    borderRadius: 8,
-    marginTop: 16,
-    gap: 8,
+    borderRadius: 4,
+    borderWidth: 1,
+    marginBottom: 8,
   },
-  divider: {
-    marginVertical: 16,
-  },
-  sectionLabel: {
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  input: {
-    marginBottom: 12,
-  },
-  halfInput: {
-    flex: 1,
-  },
-  saveButton: {
-    marginTop: 8,
-    borderRadius: 8,
-  },
-  saveContent: {
-    paddingVertical: 6,
+  addBlock: {
+    borderTopWidth: 1,
+    marginTop: 10,
+    paddingTop: 14,
   },
 });

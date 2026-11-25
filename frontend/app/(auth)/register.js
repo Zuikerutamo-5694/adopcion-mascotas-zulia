@@ -1,36 +1,45 @@
 import React, { useState } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Dimensions,
+  useWindowDimensions,
   Image,
+  Pressable,
 } from 'react-native';
-import {
-  Text,
-  TextInput,
-  Button,
-  Card,
-  useTheme,
-  SegmentedButtons,
-  Divider,
-} from 'react-native-paper';
+import { Switch } from 'react-native-paper';
 import { useRouter, Link } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../src/hooks/useAuth';
+import { useAppTheme } from '../../src/contexts/ThemeContext';
+import {
+  FieldInput,
+  ActionButton,
+  OptionGroup,
+  SectionSheet,
+  ThemeToggleButton,
+} from '../../src/components/ui';
 
 const ROLES = [
-  { value: 'adoptante', label: 'Adoptante', icon: 'account-heart' },
-  { value: 'rescatista', label: 'Rescatista', icon: 'hand-heart' },
-  { value: 'veterinario', label: 'Veterinario', icon: 'medical-bag' },
+  { value: 'adoptante', label: 'Adoptante' },
+  { value: 'rescatista', label: 'Rescatista' },
+  { value: 'veterinario', label: 'Veterinario' },
+];
+
+const TIPOS_VIVIENDA = [
+  { value: 'casa', label: 'Casa' },
+  { value: 'apartamento', label: 'Apartamento' },
+  { value: 'quinta', label: 'Quinta' },
+  { value: 'finca', label: 'Finca' },
+  { value: 'otro', label: 'Otro' },
 ];
 
 export default function RegisterScreen() {
-  const theme = useTheme();
+  const { palette, fonts } = useAppTheme();
   const router = useRouter();
-  const { register, registerOffline } = useAuth();
+  const { register } = useAuth();
 
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
@@ -41,28 +50,42 @@ export default function RegisterScreen() {
   const [rol, setRol] = useState('adoptante');
   const [showPassword, setShowPassword] = useState(false);
 
-  // Campos condicionales por rol
   const [ingresosAproximados, setIngresosAproximados] = useState('');
+  const [tipoVivienda, setTipoVivienda] = useState('casa');
+  const [tieneJardin, setTieneJardin] = useState(false);
   const [experiencia, setExperiencia] = useState('');
+
   const [organizacion, setOrganizacion] = useState('');
+  const [zonaRescate, setZonaRescate] = useState('');
+
   const [especialidad, setEspecialidad] = useState('');
-  const [licencia, setLicencia] = useState('');
+  const [numeroLicencia, setNumeroLicencia] = useState('');
+  const [clinicaAsociada, setClinicaAsociada] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const { width } = Dimensions.get('window');
-  const isWide = width > 600;
+  const { width } = useWindowDimensions();
+  const isWide = width >= 720;
 
   const validate = () => {
-    if (!nombre.trim()) return 'El nombre es requerido.';
-    if (!email.trim()) return 'El correo electrónico es requerido.';
-    if (!/\S+@\S+\.\S+/.test(email)) return 'Ingresa un correo electrónico válido.';
-    if (!password) return 'La contraseña es requerida.';
-    if (password.length < 6) return 'La contraseña debe tener al menos 6 caracteres.';
-    if (password !== confirmPassword) return 'Las contraseñas no coinciden.';
-    if (!telefono.trim()) return 'El teléfono es requerido.';
+    if (!nombre.trim()) return 'El nombre completo es obligatorio.';
+    if (!email.trim() || !/^\S+@\S+\.\S+$/.test(email.trim())) {
+      return 'Ingresa un correo electrónico válido.';
+    }
+    if (!password || password.length < 8) {
+      return 'La contraseña debe tener al menos 8 caracteres.';
+    }
+    if (password !== confirmPassword) {
+      return 'La confirmación de contraseña no coincide.';
+    }
+    if (!telefono.trim()) {
+      return 'El teléfono de contacto es obligatorio.';
+    }
+    if (rol === 'veterinario' && !numeroLicencia.trim()) {
+      return 'El número de matrícula profesional es obligatorio para veterinarios.';
+    }
     return null;
   };
 
@@ -78,89 +101,46 @@ export default function RegisterScreen() {
 
     const userData = {
       nombre: nombre.trim(),
-      email: email.trim().toLowerCase(),
+      correo: email.trim().toLowerCase(),
       password,
       telefono: telefono.trim(),
-      direccion: direccion.trim(),
+      direccion: direccion.trim() || undefined,
       rol,
     };
 
-    // Campos condicionales por rol
     if (rol === 'adoptante') {
       userData.ingresos_aproximados = ingresosAproximados
         ? parseFloat(ingresosAproximados)
         : undefined;
+      userData.tipo_vivienda = tipoVivienda;
+      userData.tiene_jardin = tieneJardin;
       userData.experiencia = experiencia.trim() || undefined;
     } else if (rol === 'rescatista') {
       userData.organizacion = organizacion.trim() || undefined;
+      userData.zona_rescate = zonaRescate.trim() || undefined;
       userData.experiencia = experiencia.trim() || undefined;
     } else if (rol === 'veterinario') {
+      userData.numero_licencia = numeroLicencia.trim();
+      userData.clinica_asociada = clinicaAsociada.trim() || undefined;
       userData.especialidad = especialidad.trim() || undefined;
-      userData.licencia = licencia.trim() || undefined;
     }
 
     setLoading(true);
     try {
       const result = await register(userData);
       if (result.success) {
-        setSuccess('¡Registro exitoso! Entrando a la plataforma...');
+        setSuccess('Registro completado en Supabase. Ingresando al catálogo...');
         setTimeout(() => {
           router.replace('/(tabs)/mascotas');
-        }, 800);
-        return;
+        }, 600);
       } else {
-        setError(result.message || 'Error al registrar. Intenta de nuevo.');
+        setError(result.message || 'No se pudo completar el registro.');
       }
     } catch (err) {
-      // Si el servidor backend no responde, crear cuenta localmente de forma inmediata
-      try {
-        await registerOffline(userData);
-        setSuccess('¡Cuenta creada sin conexión! Entrando a la plataforma...');
-        setTimeout(() => {
-          router.replace('/(tabs)/mascotas');
-        }, 800);
-        return;
-      } catch (offlineErr) {
-        setError('Error al registrar. Intenta de nuevo.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRegisterOfflineDirect = async () => {
-    setError('');
-    setSuccess('');
-
-    const validationError = validate();
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    const userData = {
-      nombre: nombre.trim(),
-      email: email.trim().toLowerCase(),
-      password,
-      telefono: telefono.trim(),
-      direccion: direccion.trim(),
-      rol,
-      organizacion: organizacion.trim() || undefined,
-      experiencia: experiencia.trim() || undefined,
-      ingresos_aproximados: ingresosAproximados ? parseFloat(ingresosAproximados) : undefined,
-      especialidad: especialidad.trim() || undefined,
-      licencia: licencia.trim() || undefined,
-    };
-
-    setLoading(true);
-    try {
-      await registerOffline(userData);
-      setSuccess('¡Cuenta creada sin conexión! Entrando a la plataforma...');
-      setTimeout(() => {
-        router.replace('/(tabs)/mascotas');
-      }, 600);
-    } catch (e) {
-      setError('Error al registrar en modo offline.');
+      setError(
+        err.response?.data?.message ||
+          'Error al registrar la cuenta. Verifica la conexión con el servidor.'
+      );
     } finally {
       setLoading(false);
     }
@@ -168,340 +148,291 @@ export default function RegisterScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: palette.canvas }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView
-        contentContainerStyle={[
-          styles.container,
-          { backgroundColor: theme.colors.background },
-        ]}
+        contentContainerStyle={[styles.scroll, { backgroundColor: palette.canvas }]}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={[styles.content, isWide && styles.contentWide]}>
-          {/* Header */}
-          <View style={styles.header}>
-            <Image
-              source={require('../../assets/logo.png')}
-              style={{ width: 72, height: 72, marginBottom: 8, alignSelf: 'center' }}
-              resizeMode="contain"
-            />
-            <Text
-              variant="headlineSmall"
-              style={[styles.title, { color: theme.colors.primary }]}
-            >
-              Crear Cuenta
+        <View style={[styles.topBar, { borderBottomColor: palette.border }]}>
+          <View style={styles.topBarInner}>
+            <Link href="/(auth)/login" asChild>
+              <Pressable accessibilityRole="link" style={styles.brandRow}>
+                <Image
+                  source={require('../../assets/logo.png')}
+                  style={{ width: 32, height: 32 }}
+                  resizeMode="contain"
+                />
+                <Text
+                  style={{
+                    color: palette.ink,
+                    fontFamily: fonts.serif,
+                    fontSize: 18,
+                    fontWeight: '700',
+                  }}
+                >
+                  Adopción Zulia
+                </Text>
+              </Pressable>
+            </Link>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <ThemeToggleButton />
+              <Link href="/(auth)/login" asChild>
+                <ActionButton label="Iniciar sesión" variant="secondary" compact />
+              </Link>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.container}>
+          <View style={styles.intro}>
+            <Text style={{ color: palette.primaryText, fontFamily: fonts.mono, fontSize: 12 }}>
+              INSCRIPCIÓN DE USUARIOS
             </Text>
             <Text
-              variant="bodyMedium"
-              style={{ color: theme.colors.onSurfaceVariant, textAlign: 'center' }}
+              style={{
+                color: palette.ink,
+                fontFamily: fonts.serif,
+                fontSize: 30,
+                fontWeight: '600',
+                marginTop: 4,
+              }}
             >
-              Únete a nuestra comunidad de adopción
+              Crear cuenta en la red comunitaria
+            </Text>
+            <Text
+              style={{
+                color: palette.inkSecondary,
+                fontFamily: fonts.sans,
+                fontSize: 14,
+                marginTop: 6,
+                lineHeight: 21,
+              }}
+            >
+              Completa tus datos de contacto y el perfil correspondiente a tu participación en el Estado Zulia.
             </Text>
           </View>
 
-          <Card
-            style={[styles.card, { backgroundColor: theme.colors.surface }]}
-            elevation={2}
-          >
-            <Card.Content style={styles.cardContent}>
-              {/* Mensajes */}
-              {error ? (
-                <View
-                  style={[
-                    styles.messageBox,
-                    { backgroundColor: theme.colors.errorContainer },
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name="alert-circle"
-                    size={20}
-                    color={theme.colors.error}
-                  />
-                  <Text style={[styles.messageText, { color: theme.colors.error }]}>
-                    {error}
-                  </Text>
-                </View>
-              ) : null}
-
-              {success ? (
-                <View
-                  style={[
-                    styles.messageBox,
-                    { backgroundColor: theme.colors.secondaryContainer },
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name="check-circle"
-                    size={20}
-                    color={theme.colors.secondary}
-                  />
-                  <Text style={[styles.messageText, { color: theme.colors.secondary }]}>
-                    {success}
-                  </Text>
-                </View>
-              ) : null}
-
-              {/* Selector de Rol */}
-              <Text
-                variant="labelLarge"
-                style={[styles.sectionLabel, { color: theme.colors.onSurface }]}
+          <SectionSheet title="1. Rol y datos de identificación">
+            {error ? (
+              <View
+                style={[
+                  styles.messageBox,
+                  {
+                    backgroundColor: palette.status.danger.bg,
+                    borderColor: palette.status.danger.border,
+                  },
+                ]}
               >
-                Tipo de cuenta
-              </Text>
-              <SegmentedButtons
-                value={rol}
-                onValueChange={setRol}
-                buttons={ROLES.map((r) => ({
-                  value: r.value,
-                  label: r.label,
-                  icon: r.icon,
-                }))}
-                style={styles.segmented}
-              />
+                <Text style={{ color: palette.status.danger.fg, fontFamily: fonts.sans, fontSize: 13.5 }}>
+                  {error}
+                </Text>
+              </View>
+            ) : null}
 
-              <Divider style={styles.divider} />
-
-              {/* Datos básicos */}
-              <Text
-                variant="labelLarge"
-                style={[styles.sectionLabel, { color: theme.colors.onSurface }]}
+            {success ? (
+              <View
+                style={[
+                  styles.messageBox,
+                  {
+                    backgroundColor: palette.status.success.bg,
+                    borderColor: palette.status.success.border,
+                  },
+                ]}
               >
-                Datos personales
-              </Text>
+                <Text style={{ color: palette.status.success.fg, fontFamily: fonts.sans, fontSize: 13.5 }}>
+                  {success}
+                </Text>
+              </View>
+            ) : null}
 
-              <TextInput
-                label="Nombre completo"
+            <OptionGroup
+              label="Tipo de participación *"
+              options={ROLES}
+              value={rol}
+              onChange={setRol}
+            />
+
+            <View style={[styles.twoCols, isWide && styles.twoColsWide]}>
+              <FieldInput
+                label="Nombre y apellido *"
                 value={nombre}
                 onChangeText={setNombre}
-                mode="outlined"
-                left={<TextInput.Icon icon="account" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
+                placeholder="Ej: María Chiquinquirá Paz"
                 disabled={loading}
+                style={isWide && styles.colHalf}
               />
+              <FieldInput
+                label="Teléfono de contacto *"
+                value={telefono}
+                onChangeText={setTelefono}
+                placeholder="Ej: 0414-6001234"
+                keyboardType="phone-pad"
+                disabled={loading}
+                style={isWide && styles.colHalf}
+              />
+            </View>
 
-              <TextInput
-                label="Correo electrónico"
+            <View style={[styles.twoCols, isWide && styles.twoColsWide]}>
+              <FieldInput
+                label="Correo electrónico *"
                 value={email}
                 onChangeText={setEmail}
-                mode="outlined"
+                placeholder="correo@dominio.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoComplete="email"
-                left={<TextInput.Icon icon="email" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
                 disabled={loading}
+                style={isWide && styles.colHalf}
               />
-
-              <TextInput
-                label="Teléfono"
-                value={telefono}
-                onChangeText={setTelefono}
-                mode="outlined"
-                keyboardType="phone-pad"
-                left={<TextInput.Icon icon="phone" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
-                disabled={loading}
-              />
-
-              <TextInput
-                label="Dirección"
+              <FieldInput
+                label="Municipio y sector"
                 value={direccion}
                 onChangeText={setDireccion}
-                mode="outlined"
-                left={<TextInput.Icon icon="map-marker" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
+                placeholder="Ej: Maracaibo, Sector Tierra Negra"
                 disabled={loading}
+                style={isWide && styles.colHalf}
               />
+            </View>
 
-              <TextInput
-                label="Contraseña"
+            <View style={[styles.twoCols, isWide && styles.twoColsWide]}>
+              <FieldInput
+                label="Contraseña (mínimo 8 caracteres) *"
                 value={password}
                 onChangeText={setPassword}
-                mode="outlined"
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
-                left={<TextInput.Icon icon="lock" />}
-                right={
-                  <TextInput.Icon
-                    icon={showPassword ? 'eye-off' : 'eye'}
-                    onPress={() => setShowPassword(!showPassword)}
-                  />
-                }
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
+                rightActionLabel={showPassword ? 'Ocultar' : 'Mostrar'}
+                onRightAction={() => setShowPassword((v) => !v)}
                 disabled={loading}
+                style={isWide && styles.colHalf}
               />
-
-              <TextInput
-                label="Confirmar contraseña"
+              <FieldInput
+                label="Confirmar contraseña *"
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
-                mode="outlined"
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
-                left={<TextInput.Icon icon="lock-check" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
+                disabled={loading}
+                style={isWide && styles.colHalf}
+              />
+            </View>
+          </SectionSheet>
+
+          {rol === 'adoptante' && (
+            <SectionSheet
+              title="2. Perfil de hogar adoptante"
+              subtitle="Estos datos agilizan tus futuras solicitudes de adopción."
+            >
+              <OptionGroup
+                label="Tipo de vivienda"
+                options={TIPOS_VIVIENDA}
+                value={tipoVivienda}
+                onChange={setTipoVivienda}
+              />
+
+              <FieldInput
+                label="Ingresos mensuales aproximados (USD)"
+                value={ingresosAproximados}
+                onChangeText={setIngresosAproximados}
+                keyboardType="numeric"
+                placeholder="Ej: 450"
+                helperText="Dato reservado únicamente para verificar capacidad de atención veterinaria."
                 disabled={loading}
               />
 
-              {/* Campos condicionales por rol */}
-              {rol === 'adoptante' && (
-                <>
-                  <Divider style={styles.divider} />
-                  <Text
-                    variant="labelLarge"
-                    style={[styles.sectionLabel, { color: theme.colors.onSurface }]}
-                  >
-                    Perfil de adoptante
-                  </Text>
-                  <TextInput
-                    label="Ingresos aproximados (Bs./mes)"
-                    value={ingresosAproximados}
-                    onChangeText={setIngresosAproximados}
-                    mode="outlined"
-                    keyboardType="numeric"
-                    left={<TextInput.Icon icon="cash" />}
-                    style={styles.input}
-                    outlineColor={theme.colors.outline}
-                    activeOutlineColor={theme.colors.primary}
-                    disabled={loading}
-                  />
-                  <TextInput
-                    label="Experiencia previa con mascotas"
-                    value={experiencia}
-                    onChangeText={setExperiencia}
-                    mode="outlined"
-                    multiline
-                    numberOfLines={3}
-                    left={<TextInput.Icon icon="heart" />}
-                    style={styles.input}
-                    outlineColor={theme.colors.outline}
-                    activeOutlineColor={theme.colors.primary}
-                    disabled={loading}
-                  />
-                </>
-              )}
-
-              {rol === 'rescatista' && (
-                <>
-                  <Divider style={styles.divider} />
-                  <Text
-                    variant="labelLarge"
-                    style={[styles.sectionLabel, { color: theme.colors.onSurface }]}
-                  >
-                    Perfil de rescatista
-                  </Text>
-                  <TextInput
-                    label="Organización / Fundación"
-                    value={organizacion}
-                    onChangeText={setOrganizacion}
-                    mode="outlined"
-                    left={<TextInput.Icon icon="home-group" />}
-                    style={styles.input}
-                    outlineColor={theme.colors.outline}
-                    activeOutlineColor={theme.colors.primary}
-                    disabled={loading}
-                  />
-                  <TextInput
-                    label="Experiencia en rescate"
-                    value={experiencia}
-                    onChangeText={setExperiencia}
-                    mode="outlined"
-                    multiline
-                    numberOfLines={3}
-                    left={<TextInput.Icon icon="hand-heart" />}
-                    style={styles.input}
-                    outlineColor={theme.colors.outline}
-                    activeOutlineColor={theme.colors.primary}
-                    disabled={loading}
-                  />
-                </>
-              )}
-
-              {rol === 'veterinario' && (
-                <>
-                  <Divider style={styles.divider} />
-                  <Text
-                    variant="labelLarge"
-                    style={[styles.sectionLabel, { color: theme.colors.onSurface }]}
-                  >
-                    Perfil profesional
-                  </Text>
-                  <TextInput
-                    label="Especialidad"
-                    value={especialidad}
-                    onChangeText={setEspecialidad}
-                    mode="outlined"
-                    left={<TextInput.Icon icon="stethoscope" />}
-                    style={styles.input}
-                    outlineColor={theme.colors.outline}
-                    activeOutlineColor={theme.colors.primary}
-                    disabled={loading}
-                  />
-                  <TextInput
-                    label="Número de licencia"
-                    value={licencia}
-                    onChangeText={setLicencia}
-                    mode="outlined"
-                    left={<TextInput.Icon icon="card-account-details" />}
-                    style={styles.input}
-                    outlineColor={theme.colors.outline}
-                    activeOutlineColor={theme.colors.primary}
-                    disabled={loading}
-                  />
-                </>
-              )}
-
-              <Button
-                mode="contained"
-                onPress={handleRegister}
-                loading={loading}
-                disabled={loading}
-                style={styles.registerButton}
-                contentStyle={styles.buttonContent}
-                buttonColor={theme.colors.primary}
-              >
-                {loading ? 'Registrando...' : 'Crear cuenta'}
-              </Button>
-
-              <Button
-                mode="outlined"
-                icon="cloud-off-outline"
-                onPress={handleRegisterOfflineDirect}
-                disabled={loading}
-                style={{ marginTop: 10, borderColor: theme.colors.primary }}
-                textColor={theme.colors.primary}
-              >
-                Registrar y Entrar en Modo Offline
-              </Button>
-
-              <View style={styles.loginRow}>
-                <Text
-                  variant="bodyMedium"
-                  style={{ color: theme.colors.onSurfaceVariant }}
-                >
-                  ¿Ya tienes cuenta?{' '}
+              <View style={[styles.switchRow, { borderColor: palette.border }]}>
+                <Text style={{ flex: 1, color: palette.ink, fontFamily: fonts.sans, fontSize: 14 }}>
+                  ¿La vivienda cuenta con patio o área exterior cerrada?
                 </Text>
-                <Link href="/(auth)/login" asChild>
-                  <Button mode="text" compact textColor={theme.colors.primary}>
-                    Inicia sesión
-                  </Button>
-                </Link>
+                <Switch
+                  value={tieneJardin}
+                  onValueChange={setTieneJardin}
+                  color={palette.primary}
+                />
               </View>
-            </Card.Content>
-          </Card>
+
+              <FieldInput
+                label="Experiencia previa cuidando animales"
+                value={experiencia}
+                onChangeText={setExperiencia}
+                multiline
+                numberOfLines={3}
+                placeholder="Describe brevemente si has tenido perros, gatos u otros animales."
+                disabled={loading}
+              />
+            </SectionSheet>
+          )}
+
+          {rol === 'rescatista' && (
+            <SectionSheet
+              title="2. Perfil de rescatista o fundación"
+              subtitle="Información visible en las fichas de animales bajo tu resguardo."
+            >
+              <FieldInput
+                label="Organización o fundación (opcional si eres independiente)"
+                value={organizacion}
+                onChangeText={setOrganizacion}
+                placeholder="Ej: Fundación Huellas del Lago"
+                disabled={loading}
+              />
+              <FieldInput
+                label="Zona de cobertura en el Estado Zulia"
+                value={zonaRescate}
+                onChangeText={setZonaRescate}
+                placeholder="Ej: Maracaibo Norte y San Francisco"
+                disabled={loading}
+              />
+              <FieldInput
+                label="Experiencia en operativos y resguardo"
+                value={experiencia}
+                onChangeText={setExperiencia}
+                multiline
+                numberOfLines={3}
+                disabled={loading}
+              />
+            </SectionSheet>
+          )}
+
+          {rol === 'veterinario' && (
+            <SectionSheet
+              title="2. Credenciales médicas veterinarias"
+              subtitle="Habilita la apertura y firma de historias clínicas en el sistema."
+            >
+              <FieldInput
+                label="Número de matrícula o colegio veterinario *"
+                value={numeroLicencia}
+                onChangeText={setNumeroLicencia}
+                placeholder="Ej: VET-ZUL-2026-0199"
+                disabled={loading}
+              />
+              <FieldInput
+                label="Clínica o consultorio asociado"
+                value={clinicaAsociada}
+                onChangeText={setClinicaAsociada}
+                placeholder="Ej: Centro Veterinario La Limpia"
+                disabled={loading}
+              />
+              <FieldInput
+                label="Especialidad clínica"
+                value={especialidad}
+                onChangeText={setEspecialidad}
+                placeholder="Ej: Medicina de pequeños animales, cirugía"
+                disabled={loading}
+              />
+            </SectionSheet>
+          )}
+
+          <View style={styles.submitRow}>
+            <ActionButton
+              label={loading ? 'Guardando cuenta...' : 'Completar registro'}
+              onPress={handleRegister}
+              loading={loading}
+              variant="primary"
+              style={{ flex: 1 }}
+            />
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -509,71 +440,68 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  scroll: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 16,
-    paddingVertical: 32,
+    paddingBottom: 48,
   },
-  content: {
+  topBar: {
+    borderBottomWidth: 1,
     width: '100%',
-    maxWidth: 520,
+  },
+  topBarInner: {
+    maxWidth: 820,
+    width: '100%',
     alignSelf: 'center',
-  },
-  contentWide: {
-    maxWidth: 480,
-  },
-  header: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    gap: 12,
   },
-  title: {
-    fontWeight: '700',
-    marginTop: 8,
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 44,
   },
-  card: {
-    borderRadius: 16,
+  container: {
+    maxWidth: 760,
+    width: '100%',
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 28,
   },
-  cardContent: {
-    padding: 24,
+  intro: {
+    marginBottom: 22,
   },
   messageBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 4,
+    borderWidth: 1,
     marginBottom: 16,
-    gap: 8,
   },
-  messageText: {
+  twoCols: {
+    flexDirection: 'column',
+  },
+  twoColsWide: {
+    flexDirection: 'row',
+    gap: 14,
+  },
+  colHalf: {
     flex: 1,
-    fontWeight: '500',
   },
-  sectionLabel: {
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  segmented: {
-    marginBottom: 8,
-  },
-  divider: {
-    marginVertical: 16,
-  },
-  input: {
-    marginBottom: 12,
-  },
-  registerButton: {
-    marginTop: 16,
-    borderRadius: 8,
-  },
-  buttonContent: {
-    paddingVertical: 6,
-  },
-  loginRow: {
+  switchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 16,
-    flexWrap: 'wrap',
+    gap: 12,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    marginBottom: 14,
+  },
+  submitRow: {
+    flexDirection: 'row',
+    marginTop: 4,
   },
 });

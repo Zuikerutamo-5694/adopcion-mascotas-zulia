@@ -1,22 +1,32 @@
-import React from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
-import { Chip, Searchbar, useTheme } from 'react-native-paper';
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  Platform,
+} from 'react-native';
+import { useAppTheme } from '../contexts/ThemeContext';
+import { ActionButton } from './ui';
 
 const ESPECIES = [
-  { key: '', label: 'Todas' },
-  { key: 'perro', label: '🐕 Perros' },
-  { key: 'gato', label: '🐱 Gatos' },
-  { key: 'ave', label: '🐦 Aves' },
-  { key: 'conejo', label: '🐰 Conejos' },
-  { key: 'otro', label: '🐾 Otros' },
+  { key: '', label: 'Todas las especies' },
+  { key: 'perro', label: 'Perros' },
+  { key: 'gato', label: 'Gatos' },
+  { key: 'ave', label: 'Aves' },
+  { key: 'conejo', label: 'Conejos' },
+  { key: 'otro', label: 'Otros' },
 ];
 
 const ESTADOS = [
-  { key: '', label: 'Todos' },
-  { key: 'en_adopcion', label: 'Disponible' },
-  { key: 'en_proceso', label: 'En proceso' },
-  { key: 'adoptado', label: 'Adoptado' },
+  { key: '', label: 'Todos los estados' },
+  { key: 'en_adopcion', label: 'En adopción' },
+  { key: 'en_proceso', label: 'En evaluación' },
   { key: 'en_tratamiento', label: 'En tratamiento' },
+  { key: 'en_rescate', label: 'En resguardo' },
+  { key: 'adoptada', label: 'Adoptadas' },
 ];
 
 export default function FilterBar({
@@ -26,87 +36,204 @@ export default function FilterBar({
   onEspecieChange,
   estadoFilter,
   onEstadoChange,
+  totalShown,
 }) {
-  const theme = useTheme();
+  const { palette, fonts } = useAppTheme();
+  const [focused, setFocused] = useState(false);
+
+  const hasFilters = Boolean(searchQuery || especieFilter || estadoFilter);
 
   return (
-    <View style={styles.container}>
-      <Searchbar
-        placeholder="Buscar mascotas..."
-        onChangeText={onSearchChange}
-        value={searchQuery}
-        style={[styles.searchbar, { backgroundColor: theme.colors.surface }]}
-        iconColor={theme.colors.primary}
-        inputStyle={{ color: theme.colors.onSurface }}
-      />
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-        {ESPECIES.map((esp) => (
-          <Chip
-            key={`esp-${esp.key}`}
-            selected={especieFilter === esp.key}
-            onPress={() => onEspecieChange(esp.key)}
+    <View style={styles.outer}>
+      <View
+        style={[
+          styles.panel,
+          {
+            backgroundColor: palette.surface,
+            borderColor: palette.border,
+          },
+        ]}
+      >
+        <View style={styles.searchRow}>
+          <View
             style={[
-              styles.chip,
-              especieFilter === esp.key && { backgroundColor: theme.colors.primaryContainer },
+              styles.searchBox,
+              {
+                backgroundColor: palette.canvas,
+                borderColor: focused ? palette.primary : palette.borderStrong,
+                borderWidth: focused ? 2 : 1,
+              },
             ]}
-            textStyle={
-              especieFilter === esp.key
-                ? { color: theme.colors.onPrimaryContainer, fontWeight: '600' }
-                : { color: theme.colors.onSurfaceVariant }
-            }
-            showSelectedOverlay
           >
-            {esp.label}
-          </Chip>
-        ))}
-      </ScrollView>
+            <TextInput
+              placeholder="Buscar por nombre, raza, municipio o temperamento..."
+              placeholderTextColor={palette.inkSecondary}
+              value={searchQuery}
+              onChangeText={onSearchChange}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              style={[
+                styles.searchInput,
+                { color: palette.ink, fontFamily: fonts.sans },
+                Platform.OS === 'web' && { outlineStyle: 'none' },
+              ]}
+            />
+          </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-        {ESTADOS.map((est) => (
-          <Chip
-            key={`est-${est.key}`}
-            selected={estadoFilter === est.key}
-            onPress={() => onEstadoChange(est.key)}
-            style={[
-              styles.chip,
-              estadoFilter === est.key && { backgroundColor: theme.colors.secondaryContainer },
-            ]}
-            textStyle={
-              estadoFilter === est.key
-                ? { color: theme.colors.onSecondaryContainer, fontWeight: '600' }
-                : { color: theme.colors.onSurfaceVariant }
-            }
-            showSelectedOverlay
+          {hasFilters ? (
+            <ActionButton
+              label="Limpiar filtros"
+              variant="secondary"
+              compact
+              onPress={() => {
+                onSearchChange('');
+                onEspecieChange('');
+                onEstadoChange('');
+              }}
+            />
+          ) : null}
+
+          {typeof totalShown === 'number' ? (
+            <Text
+              style={{
+                color: palette.inkSecondary,
+                fontFamily: fonts.mono,
+                fontSize: 12,
+              }}
+            >
+              {totalShown} {totalShown === 1 ? 'ficha' : 'fichas'}
+            </Text>
+          ) : null}
+        </View>
+
+        <View style={[styles.filterGroup, { borderTopColor: palette.border }]}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.scrollRow}
           >
-            {est.label}
-          </Chip>
-        ))}
-      </ScrollView>
+            {ESPECIES.map((esp) => {
+              const active = especieFilter === esp.key;
+              return (
+                <Pressable
+                  key={`esp-${esp.key || 'all'}`}
+                  onPress={() => onEspecieChange(esp.key)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  style={[
+                    styles.filterTab,
+                    {
+                      backgroundColor: active ? palette.primary : 'transparent',
+                      borderColor: active ? palette.primary : palette.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? palette.onPrimary : palette.ink,
+                      fontFamily: fonts.sans,
+                      fontSize: 13,
+                      fontWeight: active ? '700' : '500',
+                    }}
+                  >
+                    {esp.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.scrollRow}
+          >
+            {ESTADOS.map((est) => {
+              const active = estadoFilter === est.key;
+              return (
+                <Pressable
+                  key={`est-${est.key || 'all'}`}
+                  onPress={() => onEstadoChange(est.key)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  style={[
+                    styles.filterTab,
+                    {
+                      backgroundColor: active ? palette.surfaceSubtle : 'transparent',
+                      borderColor: active ? palette.borderStrong : palette.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? palette.ink : palette.inkSecondary,
+                      fontFamily: fonts.sans,
+                      fontSize: 12.5,
+                      fontWeight: active ? '700' : '500',
+                    }}
+                  >
+                    {est.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 4,
+  outer: {
     width: '100%',
     maxWidth: 1200,
     alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 8,
   },
-  searchbar: {
-    marginBottom: 10,
-    elevation: 1,
-    borderRadius: 12,
+  panel: {
+    borderRadius: 6,
+    borderWidth: 1,
+    padding: 14,
+    gap: 12,
   },
-  chipRow: {
+  searchRow: {
     flexDirection: 'row',
-    marginBottom: 8,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
   },
-  chip: {
-    marginRight: 8,
-    marginBottom: 4,
+  searchBox: {
+    flex: 1,
+    minWidth: 220,
+    minHeight: 44,
+    borderRadius: 4,
+    justifyContent: 'center',
+  },
+  searchInput: {
+    fontSize: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 44,
+  },
+  filterGroup: {
+    borderTopWidth: 1,
+    paddingTop: 10,
+    gap: 8,
+  },
+  scrollRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  filterTab: {
+    minHeight: 44,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 4,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

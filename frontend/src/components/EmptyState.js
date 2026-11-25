@@ -1,66 +1,91 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Text, Button, useTheme } from 'react-native-paper';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { View, Text, StyleSheet } from 'react-native';
+import { useAppTheme } from '../contexts/ThemeContext';
+import { ActionButton } from './ui';
 
 export default function EmptyState({
-  icon = 'emoticon-sad-outline',
-  title = 'No hay datos',
-  message = 'No se encontraron resultados.',
+  title = 'Sin registros disponibles',
+  message = 'No se encontraron elementos con los criterios actuales.',
   actionLabel,
   onAction,
 }) {
-  const theme = useTheme();
+  const { palette, fonts } = useAppTheme();
 
   return (
-    <View style={styles.container}>
-      <MaterialCommunityIcons
-        name={icon}
-        size={80}
-        color={theme.colors.outline}
-        style={styles.icon}
-      />
-      <Text variant="titleMedium" style={[styles.title, { color: theme.colors.onSurface }]}>
-        {title}
-      </Text>
-      <Text variant="bodyMedium" style={[styles.message, { color: theme.colors.onSurfaceVariant }]}>
-        {message}
-      </Text>
-      {actionLabel && onAction && (
-        <Button
-          mode="contained"
-          onPress={onAction}
-          style={styles.button}
-          buttonColor={theme.colors.primary}
+    <View style={styles.outer}>
+      <View
+        style={[
+          styles.sheet,
+          {
+            backgroundColor: palette.surface,
+            borderColor: palette.border,
+          },
+        ]}
+      >
+        <Text
+          style={[
+            styles.code,
+            { color: palette.inkSecondary, fontFamily: fonts.mono },
+          ]}
         >
-          {actionLabel}
-        </Button>
-      )}
+          SIN RESULTADOS
+        </Text>
+        <Text
+          style={[
+            styles.title,
+            { color: palette.ink, fontFamily: fonts.serif },
+          ]}
+        >
+          {title}
+        </Text>
+        <Text
+          style={[
+            styles.message,
+            { color: palette.inkSecondary, fontFamily: fonts.sans },
+          ]}
+        >
+          {message}
+        </Text>
+        {actionLabel && onAction ? (
+          <View style={styles.actionWrap}>
+            <ActionButton label={actionLabel} onPress={onAction} variant="secondary" />
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  outer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
-    minHeight: 300,
+    padding: 24,
+    minHeight: 260,
   },
-  icon: {
-    marginBottom: 16,
+  sheet: {
+    maxWidth: 460,
+    width: '100%',
+    padding: 28,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'flex-start',
+  },
+  code: {
+    fontSize: 11.5,
+    marginBottom: 6,
   },
   title: {
+    fontSize: 21,
     fontWeight: '600',
     marginBottom: 8,
-    textAlign: 'center',
   },
   message: {
-    textAlign: 'center',
-    marginBottom: 20,
+    fontSize: 14,
+    lineHeight: 21,
   },
-  button: {
-    borderRadius: 8,
+  actionWrap: {
+    marginTop: 18,
   },
 });

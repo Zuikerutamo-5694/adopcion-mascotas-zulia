@@ -1,45 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {
-  Text,
-  Card,
-  Chip,
-  Button,
-  TextInput,
-  Divider,
-  useTheme,
-  Snackbar,
-  Dialog,
-  Portal,
-  RadioButton,
-} from 'react-native-paper';
+import { Snackbar } from 'react-native-paper';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import solicitudesService from '../../../src/services/solicitudes.service';
 import { useAuth } from '../../../src/hooks/useAuth';
+import { useAppTheme } from '../../../src/contexts/ThemeContext';
 import LoadingScreen from '../../../src/components/LoadingScreen';
 import ErrorMessage from '../../../src/components/ErrorMessage';
+import {
+  PageHeader,
+  SectionSheet,
+  SpecRow,
+  StatusStamp,
+  FieldInput,
+  OptionGroup,
+  ActionButton,
+  getStatusMeta,
+} from '../../../src/components/ui';
 
-const estadoColors = {
-  pendiente: '#FF9800',
-  aprobada: '#4CAF50',
-  rechazada: '#F44336',
-  en_revision: '#2196F3',
-};
-
-const estadoLabels = {
-  pendiente: 'Pendiente',
-  aprobada: 'Aprobada',
-  rechazada: 'Rechazada',
-  en_revision: 'En revisión',
-};
+const EVAL_OPTIONS = [
+  { value: 'en_revision', label: 'En revisión (pasa mascota a evaluación)' },
+  { value: 'aprobada', label: 'Aprobar adopción definitiva' },
+  { value: 'rechazada', label: 'Rechazar solicitud' },
+];
 
 export default function SolicitudDetail() {
-  const theme = useTheme();
+  const { palette, fonts } = useAppTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const { user } = useAuth();
@@ -49,16 +40,15 @@ export default function SolicitudDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Evaluación (rescatista)
   const [evalDialog, setEvalDialog] = useState(false);
   const [evalEstado, setEvalEstado] = useState('aprobada');
   const [evalComentarios, setEvalComentarios] = useState('');
   const [evalLoading, setEvalLoading] = useState(false);
 
-  // Cita
+  const tomorrowIso = new Date(Date.now() + 86400000).toISOString().split('T')[0];
   const [citaDialog, setCitaDialog] = useState(false);
-  const [citaFecha, setCitaFecha] = useState('');
-  const [citaHora, setCitaHora] = useState('');
+  const [citaFecha, setCitaFecha] = useState(tomorrowIso);
+  const [citaHora, setCitaHora] = useState('10:00');
   const [citaLugar, setCitaLugar] = useState('');
   const [citaNotas, setCitaNotas] = useState('');
   const [citaLoading, setCitaLoading] = useState(false);
@@ -67,39 +57,21 @@ export default function SolicitudDetail() {
   const [snackVisible, setSnackVisible] = useState(false);
 
   useEffect(() => {
-    fetchSolicitud();
+    if (id) fetchSolicitud();
   }, [id]);
 
   const fetchSolicitud = async () => {
     try {
       setLoading(true);
       setError('');
-      try {
-        const directResult = await solicitudesService.obtener(id);
-        if (directResult.success && directResult.data) {
-          setSolicitud(directResult.data);
-          return;
-        }
-      } catch (e) {
-        // Fallback a listar
-      }
-      const result = await solicitudesService.listar();
-      if (result.success) {
-        const data = result.data;
-        const list = Array.isArray(data) ? data : data.solicitudes || data.items || [];
-        const found = list.find(
-          (s) => String(s.id_solicitud || s._id || s.id) === String(id)
-        );
-        if (found) {
-          setSolicitud(found);
-        } else {
-          setError('Solicitud no encontrada.');
-        }
+      const res = await solicitudesService.obtener(id);
+      if (res.success && res.data) {
+        setSolicitud(res.data);
       } else {
-        setError(result.message || 'Error al cargar solicitud.');
+        setError(res.message || 'Solicitud no encontrada.');
       }
     } catch (err) {
-      setError('Error al cargar la solicitud.');
+      setError(err.response?.data?.message || 'Error al cargar la solicitud.');
     } finally {
       setLoading(false);
     }
@@ -110,23 +82,16 @@ export default function SolicitudDetail() {
     try {
       const result = await solicitudesService.evaluar(id, {
         estado: evalEstado,
-        comentarios: evalComentarios.trim(),
+        motivo_decision: evalComentarios.trim(),
       });
       if (result.success) {
         setEvalDialog(false);
-        setSnackMessage(
-          evalEstado === 'aprobada'
-            ? '¡Solicitud aprobada exitosamente!'
-            : 'Solicitud rechazada.'
-        );
+        setSnackMessage(`Estado actualizado a "${getStatusMeta(evalEstado).label}".`);
         setSnackVisible(true);
         fetchSolicitud();
-      } else {
-        setSnackMessage(result.message || 'Error al evaluar.');
-        setSnackVisible(true);
       }
     } catch (err) {
-      setSnackMessage(err.response?.data?.message || 'Error al evaluar la solicitud.');
+      setSnackMessage(err.response?.data?.message || 'No se pudo registrar el dictamen.');
       setSnackVisible(true);
     } finally {
       setEvalLoading(false);
@@ -134,8 +99,8 @@ export default function SolicitudDetail() {
   };
 
   const handleAgendarCita = async () => {
-    if (!citaFecha || !citaHora || !citaLugar) {
-      setSnackMessage('Fecha, hora y lugar son requeridos.');
+    if (!citaFecha.trim() || !citaHora.trim() || !citaLugar.trim()) {
+      setSnackMessage('Fecha, hora y punto de encuentro son obligatorios.');
       setSnackVisible(true);
       return;
     }
@@ -143,33 +108,46 @@ export default function SolicitudDetail() {
     setCitaLoading(true);
     try {
       const result = await solicitudesService.agendarCita(id, {
-        fecha: citaFecha,
-        hora: citaHora,
+        fecha: citaFecha.trim(),
+        hora: citaHora.trim(),
         lugar: citaLugar.trim(),
         notas: citaNotas.trim(),
       });
       if (result.success) {
         setCitaDialog(false);
-        setSnackMessage('¡Cita agendada exitosamente!');
+        setCitaLugar('');
+        setCitaNotas('');
+        setSnackMessage('Cita registrada en Supabase.');
         setSnackVisible(true);
         fetchSolicitud();
-      } else {
-        setSnackMessage(result.message || 'Error al agendar cita.');
-        setSnackVisible(true);
       }
     } catch (err) {
-      setSnackMessage(err.response?.data?.message || 'Error al agendar la cita.');
+      setSnackMessage(err.response?.data?.message || 'No se pudo programar la cita.');
       setSnackVisible(true);
     } finally {
       setCitaLoading(false);
     }
   };
 
+  const handleCambiarEstadoCita = async (idCita, nuevoEstado) => {
+    try {
+      const res = await solicitudesService.actualizarEstadoCita(id, idCita, nuevoEstado);
+      if (res.success) {
+        setSnackMessage(`Cita marcada como ${nuevoEstado}.`);
+        setSnackVisible(true);
+        fetchSolicitud();
+      }
+    } catch (err) {
+      setSnackMessage(err.response?.data?.message || 'Error al actualizar estado de la cita.');
+      setSnackVisible(true);
+    }
+  };
+
   if (loading) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Solicitud', headerShown: true }} />
-        <LoadingScreen message="Cargando solicitud..." />
+        <Stack.Screen options={{ headerShown: false }} />
+        <LoadingScreen message="Cargando expediente de solicitud..." />
       </>
     );
   }
@@ -177,374 +155,378 @@ export default function SolicitudDetail() {
   if (error || !solicitud) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Error', headerShown: true }} />
-        <ErrorMessage message={error || 'No encontrada.'} onRetry={fetchSolicitud} />
+        <Stack.Screen options={{ headerShown: false }} />
+        <ErrorMessage message={error || 'Solicitud no encontrada.'} onRetry={fetchSolicitud} />
       </>
     );
   }
 
   const estado = solicitud.estado || 'pendiente';
-  const canEvaluate = rol === 'rescatista' && estado === 'pendiente';
-  const canSchedule = estado === 'aprobada';
+  const form = solicitud.datos_formulario || {};
+  const isOwnerRescatista =
+    rol === 'rescatista' && Number(solicitud.id_publicador) === Number(user?.id_usuario);
+  const canEvaluate =
+    (rol === 'administrador' || rol === 'admin' || isOwnerRescatista) &&
+    (estado === 'pendiente' || estado === 'en_revision');
+  const canSchedule = estado !== 'rechazada';
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Stack.Screen
-        options={{
-          title: 'Detalle de Solicitud',
-          headerShown: true,
-          headerStyle: { backgroundColor: theme.colors.surface },
-          headerTintColor: theme.colors.primary,
-        }}
-      />
+    <View style={[styles.container, { backgroundColor: palette.canvas }]}>
+      <Stack.Screen options={{ headerShown: false }} />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Card
-          style={[styles.card, { backgroundColor: theme.colors.surface }]}
-          elevation={1}
-        >
-          <Card.Content>
-            {/* Estado */}
-            <View style={styles.statusRow}>
-              <Text variant="titleLarge" style={{ color: theme.colors.onSurface, fontWeight: '700' }}>
-                Solicitud de Adopción
-              </Text>
-              <Chip
-                style={{ backgroundColor: estadoColors[estado] || '#9E9E9E' }}
-                textStyle={{ color: '#FFF', fontWeight: '600' }}
-              >
-                {estadoLabels[estado] || estado}
-              </Chip>
-            </View>
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <PageHeader
+          eyebrow={`EXPEDIENTE DE ADOPCIÓN · #${String(solicitud.id_solicitud).padStart(3, '0')}`}
+          title={`Solicitud para ${solicitud.mascota_nombre || 'Mascota'}`}
+          subtitle={`Postulante: ${solicitud.adoptante_nombre || 'Usuario registrado'}`}
+          secondaryActionLabel="Volver a solicitudes"
+          onSecondaryAction={() => router.push('/(tabs)/solicitudes')}
+          maxWidth={840}
+        />
 
-            <Divider style={styles.divider} />
-
-            {/* Info de la mascota */}
-            <InfoRow
-              icon="paw"
-              label="Mascota"
-              value={solicitud.mascota?.nombre || 'No especificada'}
-              color={theme.colors.primary}
-              textColor={theme.colors.onSurface}
+        <View style={styles.body}>
+          <SectionSheet
+            title="Resumen de la postulación"
+            rightElement={<StatusStamp status={estado} />}
+          >
+            <SpecRow
+              label="Animal solicitado"
+              value={`${solicitud.mascota_nombre || 'Mascota'} (${solicitud.especie || ''})`}
+              actionLabel="Ver ficha"
+              onAction={() => router.push(`/(tabs)/mascotas/${solicitud.id_mascota}`)}
             />
-
-            {/* Info del adoptante */}
-            <InfoRow
-              icon="account"
-              label="Adoptante"
-              value={solicitud.adoptante?.nombre || solicitud.adoptanteNombre || 'No especificado'}
-              color={theme.colors.primary}
-              textColor={theme.colors.onSurface}
+            <SpecRow
+              label="Datos del postulante"
+              value={`${solicitud.adoptante_nombre || 'No especificado'}${
+                solicitud.adoptante_correo ? ` · ${solicitud.adoptante_correo}` : ''
+              }${solicitud.adoptante_telefono ? ` · ${solicitud.adoptante_telefono}` : ''}`}
             />
-
-            {/* Motivo */}
-            {solicitud.motivo && (
-              <InfoRow
-                icon="text-box"
-                label="Motivo"
-                value={solicitud.motivo}
-                color={theme.colors.primary}
-                textColor={theme.colors.onSurface}
-              />
-            )}
-
-            {/* Experiencia */}
-            {solicitud.experiencia && (
-              <InfoRow
-                icon="heart"
-                label="Experiencia"
-                value={solicitud.experiencia}
-                color={theme.colors.primary}
-                textColor={theme.colors.onSurface}
-              />
-            )}
-
-            {/* Fecha */}
-            <InfoRow
-              icon="calendar"
-              label="Fecha"
+            <SpecRow
+              label="Fecha de recepción"
               value={
-                solicitud.fecha || solicitud.createdAt
-                  ? new Date(solicitud.fecha || solicitud.createdAt).toLocaleDateString('es-VE')
-                  : 'No disponible'
+                solicitud.fecha_solicitud
+                  ? new Date(solicitud.fecha_solicitud).toLocaleString('es-VE')
+                  : 'No registrada'
               }
-              color={theme.colors.primary}
-              textColor={theme.colors.onSurface}
+              mono
+              last={!solicitud.motivo_decision}
             />
+            {solicitud.motivo_decision ? (
+              <SpecRow
+                label="Dictamen emitido"
+                value={solicitud.motivo_decision}
+                last
+              />
+            ) : null}
+          </SectionSheet>
 
-            {/* Comentarios de evaluación */}
-            {solicitud.comentarios && (
-              <>
-                <Divider style={styles.divider} />
-                <Text variant="titleSmall" style={{ color: theme.colors.onSurface, fontWeight: '600', marginBottom: 4 }}>
-                  Comentarios del evaluador
-                </Text>
-                <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-                  {solicitud.comentarios}
-                </Text>
-              </>
-            )}
+          <SectionSheet title="Declaración socioeconómica y de vivienda">
+            <SpecRow
+              label="Motivación declarada"
+              value={form.motivo || form.motivacion || solicitud.motivo}
+            />
+            <SpecRow
+              label="Inmueble y cerramiento"
+              value={`Tipo: ${
+                form.tipo_vivienda || solicitud.adoptante_tipo_vivienda || 'N/D'
+              } · Cerramiento exterior: ${
+                form.tiene_espacio_exterior ?? solicitud.adoptante_tiene_jardin ? 'Sí' : 'No'
+              } · Integrantes: ${form.num_personas_hogar ?? 'N/D'}`}
+            />
+            <SpecRow
+              label="Ocupación e ingresos"
+              value={`${form.ocupacion || 'Ocupación N/D'} · Ingresos: ${
+                form.ingresos_aproximados ||
+                (solicitud.adoptante_ingresos ? `${solicitud.adoptante_ingresos} USD` : 'N/D')
+              }`}
+            />
+            <SpecRow
+              label="Experiencia y hogar"
+              value={`Experiencia: ${String(
+                form.experiencia_mascotas || 'N/D'
+              )} · Niños en casa: ${form.tiene_ninos ? 'Sí' : 'No'} · Otros animales: ${
+                form.tiene_otras_mascotas ? 'Sí' : 'No'
+              }`}
+              last={!form.compromiso}
+            />
+            {form.compromiso ? (
+              <SpecRow label="Compromiso sanitario" value={form.compromiso} last />
+            ) : null}
+          </SectionSheet>
 
-            {/* Citas */}
-            {solicitud.citas && solicitud.citas.length > 0 && (
-              <>
-                <Divider style={styles.divider} />
-                <Text variant="titleSmall" style={{ color: theme.colors.onSurface, fontWeight: '600', marginBottom: 8 }}>
-                  Citas agendadas
-                </Text>
-                {solicitud.citas.map((cita, index) => (
-                  <Card key={index} style={[styles.citaCard, { backgroundColor: theme.colors.surfaceVariant }]}>
-                    <Card.Content>
-                      <Text variant="bodyMedium" style={{ color: theme.colors.onSurface }}>
-                        📅 {cita.fecha} a las {cita.hora}
+          <SectionSheet
+            title={`Citas presenciales (${solicitud.citas?.length || 0})`}
+            subtitle="Entrevistas domiciliarias y entregas acordadas entre ambas partes."
+          >
+            {!solicitud.citas || solicitud.citas.length === 0 ? (
+              <Text
+                style={{
+                  color: palette.inkSecondary,
+                  fontFamily: fonts.sans,
+                  fontSize: 13.5,
+                  marginBottom: 14,
+                }}
+              >
+                Todavía no se han agendado citas para esta solicitud.
+              </Text>
+            ) : (
+              <View style={{ gap: 10, marginBottom: 14 }}>
+                {solicitud.citas.map((cita) => (
+                  <View
+                    key={cita.id_cita}
+                    style={[
+                      styles.citaBox,
+                      {
+                        backgroundColor: palette.surfaceSubtle,
+                        borderColor: palette.border,
+                      },
+                    ]}
+                  >
+                    <View style={styles.citaHeader}>
+                      <Text
+                        style={{
+                          color: palette.ink,
+                          fontFamily: fonts.mono,
+                          fontSize: 13,
+                          fontWeight: '600',
+                        }}
+                      >
+                        Fecha: {cita.fecha} · Hora: {cita.hora}
                       </Text>
-                      <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                        📍 {cita.lugar}
+                      <StatusStamp status={cita.estado} />
+                    </View>
+                    <Text
+                      style={{
+                        color: palette.ink,
+                        fontFamily: fonts.sans,
+                        fontSize: 13.5,
+                        marginTop: 4,
+                      }}
+                    >
+                      Lugar: {cita.lugar}
+                    </Text>
+                    {cita.notas ? (
+                      <Text
+                        style={{
+                          color: palette.inkSecondary,
+                          fontFamily: fonts.sans,
+                          fontSize: 13,
+                          marginTop: 2,
+                        }}
+                      >
+                        Indicaciones: {cita.notas}
                       </Text>
-                      {cita.notas && (
-                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                          📝 {cita.notas}
-                        </Text>
-                      )}
-                    </Card.Content>
-                  </Card>
+                    ) : null}
+
+                    {cita.estado === 'programada' &&
+                    (rol === 'administrador' || rol === 'admin' || isOwnerRescatista) ? (
+                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                        <ActionButton
+                          label="Marcar completada"
+                          variant="primary"
+                          compact
+                          onPress={() => handleCambiarEstadoCita(cita.id_cita, 'completada')}
+                        />
+                        <ActionButton
+                          label="Cancelar cita"
+                          variant="dangerOutline"
+                          compact
+                          onPress={() => handleCambiarEstadoCita(cita.id_cita, 'cancelada')}
+                        />
+                      </View>
+                    ) : null}
+                  </View>
                 ))}
-              </>
+              </View>
             )}
 
-            <Divider style={styles.divider} />
+            <View style={styles.actionRow}>
+              {canEvaluate ? (
+                <ActionButton
+                  label={evalDialog ? 'Cerrar dictamen' : 'Emitir dictamen'}
+                  variant="primary"
+                  onPress={() => {
+                    setEvalDialog((v) => !v);
+                    setCitaDialog(false);
+                  }}
+                />
+              ) : null}
 
-            {/* Acciones */}
-            <View style={styles.actions}>
-              {canEvaluate && (
-                <Button
-                  mode="contained"
-                  icon="check-decagram"
-                  onPress={() => setEvalDialog(true)}
-                  buttonColor={theme.colors.primary}
-                  style={styles.actionBtn}
-                  contentStyle={styles.actionBtnContent}
-                >
-                  Evaluar Solicitud
-                </Button>
-              )}
-
-              {canSchedule && (
-                <Button
-                  mode="outlined"
-                  icon="calendar-plus"
-                  onPress={() => setCitaDialog(true)}
-                  textColor={theme.colors.secondary}
-                  style={styles.actionBtn}
-                >
-                  Agendar Cita
-                </Button>
-              )}
+              {canSchedule ? (
+                <ActionButton
+                  label={citaDialog ? 'Cerrar agenda' : 'Programar entrevista o entrega'}
+                  variant="secondary"
+                  onPress={() => {
+                    setCitaDialog((v) => !v);
+                    setEvalDialog(false);
+                  }}
+                />
+              ) : null}
             </View>
-          </Card.Content>
-        </Card>
+
+            {evalDialog ? (
+              <View
+                style={[
+                  styles.inlinePanel,
+                  {
+                    backgroundColor: palette.surfaceSubtle,
+                    borderColor: palette.borderStrong,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: palette.ink,
+                    fontFamily: fonts.serif,
+                    fontSize: 18,
+                    fontWeight: '600',
+                    marginBottom: 10,
+                  }}
+                >
+                  Registrar dictamen de evaluación
+                </Text>
+
+                <OptionGroup
+                  label="Resolución"
+                  options={EVAL_OPTIONS}
+                  value={evalEstado}
+                  onChange={setEvalEstado}
+                />
+
+                <FieldInput
+                  label="Observaciones o fundamento de la decisión"
+                  value={evalComentarios}
+                  onChangeText={setEvalComentarios}
+                  multiline
+                  numberOfLines={3}
+                  placeholder="Registra los motivos de aprobación, paso a revisión o rechazo."
+                />
+
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+                  <ActionButton
+                    label="Cancelar"
+                    variant="secondary"
+                    compact
+                    onPress={() => setEvalDialog(false)}
+                  />
+                  <ActionButton
+                    label="Guardar dictamen"
+                    variant="primary"
+                    compact
+                    loading={evalLoading}
+                    onPress={handleEvaluar}
+                  />
+                </View>
+              </View>
+            ) : null}
+
+            {citaDialog ? (
+              <View
+                style={[
+                  styles.inlinePanel,
+                  {
+                    backgroundColor: palette.surfaceSubtle,
+                    borderColor: palette.borderStrong,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: palette.ink,
+                    fontFamily: fonts.serif,
+                    fontSize: 18,
+                    fontWeight: '600',
+                    marginBottom: 10,
+                  }}
+                >
+                  Programar nueva cita presencial
+                </Text>
+
+                <FieldInput
+                  label="Fecha acordada (AAAA-MM-DD) *"
+                  value={citaFecha}
+                  onChangeText={setCitaFecha}
+                  placeholder="2026-12-05"
+                />
+                <FieldInput
+                  label="Hora en formato 24h (HH:MM) *"
+                  value={citaHora}
+                  onChangeText={setCitaHora}
+                  placeholder="10:30"
+                />
+                <FieldInput
+                  label="Dirección o punto de encuentro *"
+                  value={citaLugar}
+                  onChangeText={setCitaLugar}
+                  placeholder="Ej: Sede Fundación Huellas, Av. Bella Vista, Maracaibo"
+                />
+                <FieldInput
+                  label="Indicaciones previas"
+                  value={citaNotas}
+                  onChangeText={setCitaNotas}
+                  multiline
+                  numberOfLines={2}
+                />
+
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+                  <ActionButton
+                    label="Cancelar"
+                    variant="secondary"
+                    compact
+                    onPress={() => setCitaDialog(false)}
+                  />
+                  <ActionButton
+                    label="Confirmar cita"
+                    variant="primary"
+                    compact
+                    loading={citaLoading}
+                    onPress={handleAgendarCita}
+                  />
+                </View>
+              </View>
+            ) : null}
+          </SectionSheet>
+        </View>
       </ScrollView>
 
-      {/* Dialog de evaluación */}
-      <Portal>
-        <Dialog
-          visible={evalDialog}
-          onDismiss={() => setEvalDialog(false)}
-          style={{ backgroundColor: theme.colors.surface }}
-        >
-          <Dialog.Title style={{ color: theme.colors.onSurface }}>
-            Evaluar Solicitud
-          </Dialog.Title>
-          <Dialog.Content>
-            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12 }}>
-              Selecciona el resultado de la evaluación:
-            </Text>
-            <RadioButton.Group onValueChange={setEvalEstado} value={evalEstado}>
-              <RadioButton.Item
-                label="Aprobar adopción"
-                value="aprobada"
-                color={theme.colors.secondary}
-              />
-              <RadioButton.Item
-                label="Rechazar solicitud"
-                value="rechazada"
-                color={theme.colors.error}
-              />
-            </RadioButton.Group>
-            <TextInput
-              label="Comentarios"
-              value={evalComentarios}
-              onChangeText={setEvalComentarios}
-              mode="outlined"
-              multiline
-              numberOfLines={3}
-              style={{ marginTop: 12 }}
-              outlineColor={theme.colors.outline}
-              activeOutlineColor={theme.colors.primary}
-            />
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setEvalDialog(false)} textColor={theme.colors.onSurfaceVariant}>
-              Cancelar
-            </Button>
-            <Button
-              onPress={handleEvaluar}
-              loading={evalLoading}
-              disabled={evalLoading}
-              textColor={evalEstado === 'aprobada' ? theme.colors.secondary : theme.colors.error}
-            >
-              {evalEstado === 'aprobada' ? 'Aprobar' : 'Rechazar'}
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-
-        {/* Dialog de cita */}
-        <Dialog
-          visible={citaDialog}
-          onDismiss={() => setCitaDialog(false)}
-          style={{ backgroundColor: theme.colors.surface }}
-        >
-          <Dialog.Title style={{ color: theme.colors.onSurface }}>
-            Agendar Cita
-          </Dialog.Title>
-          <Dialog.Content>
-            <TextInput
-              label="Fecha (DD/MM/AAAA)"
-              value={citaFecha}
-              onChangeText={setCitaFecha}
-              mode="outlined"
-              left={<TextInput.Icon icon="calendar" />}
-              style={styles.dialogInput}
-              outlineColor={theme.colors.outline}
-              activeOutlineColor={theme.colors.primary}
-              placeholder="Ej: 25/12/2024"
-            />
-            <TextInput
-              label="Hora"
-              value={citaHora}
-              onChangeText={setCitaHora}
-              mode="outlined"
-              left={<TextInput.Icon icon="clock" />}
-              style={styles.dialogInput}
-              outlineColor={theme.colors.outline}
-              activeOutlineColor={theme.colors.primary}
-              placeholder="Ej: 10:00 AM"
-            />
-            <TextInput
-              label="Lugar"
-              value={citaLugar}
-              onChangeText={setCitaLugar}
-              mode="outlined"
-              left={<TextInput.Icon icon="map-marker" />}
-              style={styles.dialogInput}
-              outlineColor={theme.colors.outline}
-              activeOutlineColor={theme.colors.primary}
-            />
-            <TextInput
-              label="Notas adicionales"
-              value={citaNotas}
-              onChangeText={setCitaNotas}
-              mode="outlined"
-              multiline
-              numberOfLines={2}
-              style={styles.dialogInput}
-              outlineColor={theme.colors.outline}
-              activeOutlineColor={theme.colors.primary}
-            />
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setCitaDialog(false)} textColor={theme.colors.onSurfaceVariant}>
-              Cancelar
-            </Button>
-            <Button
-              onPress={handleAgendarCita}
-              loading={citaLoading}
-              disabled={citaLoading}
-              textColor={theme.colors.primary}
-            >
-              Agendar
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-
-      <Snackbar
-        visible={snackVisible}
-        onDismiss={() => setSnackVisible(false)}
-        duration={3000}
-        action={{ label: 'OK', onPress: () => setSnackVisible(false) }}
-      >
+      <Snackbar visible={snackVisible} onDismiss={() => setSnackVisible(false)} duration={3000}>
         {snackMessage}
       </Snackbar>
     </View>
   );
 }
 
-function InfoRow({ icon, label, value, color, textColor }) {
-  return (
-    <View style={infoStyles.row}>
-      <MaterialCommunityIcons name={icon} size={20} color={color} />
-      <View style={infoStyles.textCol}>
-        <Text variant="labelSmall" style={{ color }}>
-          {label}
-        </Text>
-        <Text variant="bodyMedium" style={{ color: textColor }}>
-          {value}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-const infoStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginBottom: 12,
-  },
-  textCol: {
-    flex: 1,
-  },
-});
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-  },
-  card: {
-    borderRadius: 16,
-    maxWidth: 700,
-    alignSelf: 'center',
+  container: { flex: 1 },
+  scroll: { paddingBottom: 44 },
+  body: {
+    maxWidth: 840,
     width: '100%',
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 18,
   },
-  statusRow: {
+  citaBox: {
+    padding: 14,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  citaHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 8,
   },
-  divider: {
-    marginVertical: 16,
+  actionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
   },
-  citaCard: {
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  actions: {
-    gap: 12,
-  },
-  actionBtn: {
-    borderRadius: 8,
-  },
-  actionBtnContent: {
-    paddingVertical: 6,
-  },
-  dialogInput: {
-    marginBottom: 12,
+  inlinePanel: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 6,
+    borderWidth: 1,
   },
 });

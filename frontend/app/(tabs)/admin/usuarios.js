@@ -1,47 +1,46 @@
 import React, { useState, useEffect } from 'react';
 import {
   View,
+  Text,
+  TextInput,
   StyleSheet,
   FlatList,
   RefreshControl,
+  Platform,
 } from 'react-native';
-import {
-  Text,
-  Card,
-  Switch,
-  Chip,
-  Searchbar,
-  useTheme,
-  Snackbar,
-  Dialog,
-  Portal,
-  Button,
-} from 'react-native-paper';
-import { Stack } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Snackbar } from 'react-native-paper';
+import { Stack, useRouter } from 'expo-router';
 import adminService from '../../../src/services/admin.service';
+import { useAuth } from '../../../src/hooks/useAuth';
+import { useAppTheme } from '../../../src/contexts/ThemeContext';
 import LoadingScreen from '../../../src/components/LoadingScreen';
 import EmptyState from '../../../src/components/EmptyState';
 import ErrorMessage from '../../../src/components/ErrorMessage';
+import {
+  PageHeader,
+  StatusStamp,
+  FolioCode,
+  OptionGroup,
+  ActionButton,
+} from '../../../src/components/ui';
 
-const rolColors = {
-  adoptante: '#4CAF50',
-  rescatista: '#FF9800',
-  veterinario: '#2196F3',
-  administrador: '#9C27B0',
-  admin: '#9C27B0',
-};
-
-const rolLabels = {
+const ROL_LABELS = {
   adoptante: 'Adoptante',
   rescatista: 'Rescatista',
   veterinario: 'Veterinario',
-  administrador: 'Admin',
-  admin: 'Admin',
+  administrador: 'Administrador',
 };
 
+const ESTADO_OPTIONS = [
+  { value: 'activo', label: 'Activo (acceso normal)' },
+  { value: 'inactivo', label: 'Inactivo (baja temporal)' },
+  { value: 'suspendido', label: 'Suspendido (bloqueo)' },
+];
+
 export default function UsuariosAdmin() {
-  const theme = useTheme();
+  const { palette, fonts } = useAppTheme();
+  const router = useRouter();
+  const { user: currentAdmin } = useAuth();
 
   const [usuarios, setUsuarios] = useState([]);
   const [filteredUsuarios, setFilteredUsuarios] = useState([]);
@@ -49,11 +48,11 @@ export default function UsuariosAdmin() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
 
-  // Dialog de confirmación
   const [confirmDialog, setConfirmDialog] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [newEstado, setNewEstado] = useState('');
+  const [newEstado, setNewEstado] = useState('activo');
   const [updating, setUpdating] = useState(false);
 
   const [snackMessage, setSnackMessage] = useState('');
@@ -85,24 +84,22 @@ export default function UsuariosAdmin() {
       const result = await adminService.listarUsuarios();
       if (result.success) {
         const data = result.data;
-        const list = Array.isArray(data) ? data : (data.usuarios || data.users || []);
+        const list = Array.isArray(data) ? data : data.usuarios || [];
         setUsuarios(list);
       } else {
-        setError(result.message || 'Error al cargar usuarios.');
+        setError(result.message || 'No se pudo consultar el directorio.');
       }
     } catch (err) {
-      setError('Error al cargar la lista de usuarios.');
+      setError(err.response?.data?.message || 'Error al cargar el listado de cuentas.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const handleToggleEstado = (usuario) => {
-    const currentEstado = usuario.estado || 'activo';
-    const nuevoEstado = currentEstado === 'activo' ? 'inactivo' : 'activo';
+  const openChangeEstado = (usuario) => {
     setSelectedUser(usuario);
-    setNewEstado(nuevoEstado);
+    setNewEstado(usuario.estado || 'activo');
     setConfirmDialog(true);
   };
 
@@ -110,31 +107,22 @@ export default function UsuariosAdmin() {
     if (!selectedUser) return;
     setUpdating(true);
     try {
-      const userId = selectedUser.id_usuario || selectedUser._id || selectedUser.id;
+      const userId = selectedUser.id_usuario;
       const result = await adminService.cambiarEstadoUsuario(userId, {
         estado: newEstado,
       });
       if (result.success) {
-        setSnackMessage(
-          `Usuario ${selectedUser.nombre} ${newEstado === 'activo' ? 'activado' : 'desactivado'}.`
-        );
+        setSnackMessage(`Estado de ${selectedUser.nombre} cambiado a "${newEstado}".`);
         setSnackVisible(true);
-        // Actualizar lista local
         setUsuarios((prev) =>
-          prev.map((u) =>
-            (u.id_usuario || u._id || u.id) === userId
-              ? { ...u, estado: newEstado }
-              : u
-          )
+          prev.map((u) => (u.id_usuario === userId ? { ...u, estado: newEstado } : u))
         );
       } else {
-        setSnackMessage(result.message || 'Error al cambiar estado.');
+        setSnackMessage(result.message || 'No se pudo actualizar el estado.');
         setSnackVisible(true);
       }
     } catch (err) {
-      setSnackMessage(
-        err.response?.data?.message || 'Error al cambiar estado del usuario.'
-      );
+      setSnackMessage(err.response?.data?.message || 'Error al cambiar estado de la cuenta.');
       setSnackVisible(true);
     } finally {
       setUpdating(false);
@@ -146,115 +134,180 @@ export default function UsuariosAdmin() {
   if (loading) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Usuarios', headerShown: true }} />
-        <LoadingScreen message="Cargando usuarios..." />
+        <Stack.Screen options={{ headerShown: false }} />
+        <LoadingScreen message="Cargando directorio de usuarios..." />
       </>
     );
   }
 
+  const headerNode = (
+    <View>
+      <PageHeader
+        eyebrow="CONTROL DE CUENTAS Y PERMISOS"
+        title="Directorio de usuarios registrados"
+        subtitle="Filtra por nombre, correo o rol y ajusta el estado operativo de cualquier cuenta."
+        secondaryActionLabel="Volver al resumen"
+        onSecondaryAction={() => router.push('/(tabs)/admin')}
+        maxWidth={960}
+      />
+      <View style={styles.searchOuter}>
+        <View
+          style={[
+            styles.searchBox,
+            {
+              backgroundColor: palette.surface,
+              borderColor: searchFocused ? palette.primary : palette.borderStrong,
+              borderWidth: searchFocused ? 2 : 1,
+            },
+          ]}
+        >
+          <TextInput
+            placeholder="Buscar por nombre, correo electrónico o rol..."
+            placeholderTextColor={palette.inkSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            style={[
+              styles.searchInput,
+              { color: palette.ink, fontFamily: fonts.sans },
+              Platform.OS === 'web' && { outlineStyle: 'none' },
+            ]}
+          />
+        </View>
+      </View>
+      {error ? <ErrorMessage message={error} onRetry={fetchUsuarios} /> : null}
+    </View>
+  );
+
   const renderUsuario = ({ item }) => {
     const rol = item.rol?.toLowerCase() || '';
-    const estadoActivo = (item.estado || 'activo') === 'activo';
+    const isSelf = Number(item.id_usuario) === Number(currentAdmin?.id_usuario);
+    const isSelected = confirmDialog && selectedUser?.id_usuario === item.id_usuario;
 
     return (
-      <Card
-        style={[styles.card, { backgroundColor: theme.colors.surface }]}
-        elevation={1}
-      >
-        <Card.Content style={styles.userRow}>
-          <View style={styles.userInfo}>
-            <View style={styles.nameRow}>
-              <MaterialCommunityIcons
-                name="account"
-                size={24}
-                color={theme.colors.primary}
-              />
-              <View style={{ flex: 1 }}>
+      <View style={styles.itemOuter}>
+        <View
+          style={[
+            styles.sheet,
+            {
+              backgroundColor: palette.surface,
+              borderColor: palette.border,
+            },
+          ]}
+        >
+          <View style={styles.mainRow}>
+            <View style={{ flex: 1 }}>
+              <View style={styles.titleLine}>
                 <Text
-                  variant="titleSmall"
-                  style={{ color: theme.colors.onSurface, fontWeight: '600' }}
+                  style={{
+                    color: palette.ink,
+                    fontFamily: fonts.serif,
+                    fontSize: 18,
+                    fontWeight: '600',
+                  }}
                 >
-                  {item.nombre || 'Sin nombre'}
+                  {item.nombre} {isSelf ? '(Sesión actual)' : ''}
                 </Text>
-                <Text
-                  variant="bodySmall"
-                  style={{ color: theme.colors.onSurfaceVariant }}
-                >
-                  {item.email}
-                </Text>
+                <FolioCode prefix="USR" id={item.id_usuario} />
+              </View>
+
+              <Text
+                style={{
+                  color: palette.inkSecondary,
+                  fontFamily: fonts.sans,
+                  fontSize: 13,
+                  marginTop: 2,
+                }}
+              >
+                {item.correo || item.email}
+                {item.telefono ? ` · ${item.telefono}` : ''}
+              </Text>
+
+              <View style={styles.stampsRow}>
+                <StatusStamp
+                  status="neutral"
+                  label={ROL_LABELS[rol] || rol}
+                  tone="neutral"
+                />
+                <StatusStamp status={item.estado || 'activo'} />
               </View>
             </View>
 
-            <View style={styles.chipRow}>
-              <Chip
-                compact
-                style={{ backgroundColor: rolColors[rol] || '#9E9E9E' }}
-                textStyle={{ color: '#FFF', fontSize: 10, fontWeight: '600' }}
-              >
-                {rolLabels[rol] || rol}
-              </Chip>
-              <Chip
-                compact
-                style={{
-                  backgroundColor: estadoActivo ? '#E8F5E9' : '#FFEBEE',
-                }}
-                textStyle={{
-                  color: estadoActivo ? '#2E7D32' : '#C62828',
-                  fontSize: 10,
-                }}
-              >
-                {estadoActivo ? 'Activo' : 'Inactivo'}
-              </Chip>
-            </View>
+            <ActionButton
+              label={isSelected ? 'Cerrar' : 'Cambiar estado'}
+              variant="secondary"
+              compact
+              disabled={isSelf}
+              onPress={() => {
+                if (isSelected) {
+                  setConfirmDialog(false);
+                  setSelectedUser(null);
+                } else {
+                  openChangeEstado(item);
+                }
+              }}
+            />
           </View>
 
-          <Switch
-            value={estadoActivo}
-            onValueChange={() => handleToggleEstado(item)}
-            color={theme.colors.secondary}
-          />
-        </Card.Content>
-      </Card>
+          {isSelected ? (
+            <View
+              style={[
+                styles.editorBox,
+                {
+                  backgroundColor: palette.surfaceSubtle,
+                  borderTopColor: palette.border,
+                },
+              ]}
+            >
+              <OptionGroup
+                label="Seleccionar nuevo estado de cuenta"
+                options={ESTADO_OPTIONS}
+                value={newEstado}
+                onChange={setNewEstado}
+              />
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+                <ActionButton
+                  label="Cancelar"
+                  variant="secondary"
+                  compact
+                  onPress={() => {
+                    setConfirmDialog(false);
+                    setSelectedUser(null);
+                  }}
+                />
+                <ActionButton
+                  label="Guardar estado"
+                  variant="primary"
+                  compact
+                  loading={updating}
+                  onPress={confirmChangeEstado}
+                />
+              </View>
+            </View>
+          ) : null}
+        </View>
+      </View>
     );
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Stack.Screen
-        options={{
-          title: 'Gestión de Usuarios',
-          headerShown: true,
-          headerStyle: { backgroundColor: theme.colors.surface },
-          headerTintColor: theme.colors.primary,
-        }}
-      />
-
-      <Searchbar
-        placeholder="Buscar usuarios..."
-        onChangeText={setSearchQuery}
-        value={searchQuery}
-        style={[styles.searchbar, { backgroundColor: theme.colors.surface }]}
-        iconColor={theme.colors.primary}
-      />
-
-      {error ? (
-        <ErrorMessage message={error} onRetry={fetchUsuarios} />
-      ) : null}
+    <View style={[styles.container, { backgroundColor: palette.canvas }]}>
+      <Stack.Screen options={{ headerShown: false }} />
 
       {filteredUsuarios.length === 0 && !error ? (
-        <EmptyState
-          icon="account-off"
-          title="No hay usuarios"
-          message={
-            searchQuery
-              ? 'No se encontraron usuarios con esa búsqueda.'
-              : 'No hay usuarios registrados en el sistema.'
-          }
-        />
+        <View style={{ flex: 1 }}>
+          {headerNode}
+          <EmptyState
+            title="Sin cuentas que coincidan"
+            message="Modifica el término de búsqueda para listar otros perfiles."
+          />
+        </View>
       ) : (
         <FlatList
           data={filteredUsuarios}
-          keyExtractor={(item) => item._id || item.id || Math.random().toString()}
+          keyExtractor={(item) => String(item.id_usuario)}
+          ListHeaderComponent={headerNode}
           renderItem={renderUsuario}
           contentContainerStyle={styles.list}
           refreshControl={
@@ -264,58 +317,13 @@ export default function UsuariosAdmin() {
                 setRefreshing(true);
                 fetchUsuarios();
               }}
-              colors={[theme.colors.primary]}
+              colors={[palette.primary]}
             />
           }
         />
       )}
 
-      {/* Dialog de confirmación */}
-      <Portal>
-        <Dialog
-          visible={confirmDialog}
-          onDismiss={() => setConfirmDialog(false)}
-          style={{ backgroundColor: theme.colors.surface }}
-        >
-          <Dialog.Title style={{ color: theme.colors.onSurface }}>
-            Confirmar cambio
-          </Dialog.Title>
-          <Dialog.Content>
-            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-              ¿Estás seguro de{' '}
-              {newEstado === 'activo' ? 'activar' : 'desactivar'} al usuario{' '}
-              <Text style={{ fontWeight: '600' }}>
-                {selectedUser?.nombre}
-              </Text>
-              ?
-            </Text>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button
-              onPress={() => setConfirmDialog(false)}
-              textColor={theme.colors.onSurfaceVariant}
-            >
-              Cancelar
-            </Button>
-            <Button
-              onPress={confirmChangeEstado}
-              loading={updating}
-              disabled={updating}
-              textColor={
-                newEstado === 'activo' ? theme.colors.secondary : theme.colors.error
-              }
-            >
-              {newEstado === 'activo' ? 'Activar' : 'Desactivar'}
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-
-      <Snackbar
-        visible={snackVisible}
-        onDismiss={() => setSnackVisible(false)}
-        duration={3000}
-      >
+      <Snackbar visible={snackVisible} onDismiss={() => setSnackVisible(false)} duration={3000}>
         {snackMessage}
       </Snackbar>
     </View>
@@ -323,41 +331,60 @@ export default function UsuariosAdmin() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { flex: 1 },
+  searchOuter: {
+    maxWidth: 960,
+    width: '100%',
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 4,
   },
-  searchbar: {
-    margin: 16,
-    marginBottom: 8,
-    elevation: 1,
-    borderRadius: 12,
+  searchBox: {
+    minHeight: 44,
+    borderRadius: 4,
+    justifyContent: 'center',
   },
-  list: {
+  searchInput: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  list: { paddingBottom: 40 },
+  itemOuter: {
+    maxWidth: 960,
+    width: '100%',
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    marginTop: 10,
+  },
+  sheet: {
+    borderRadius: 6,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  mainRow: {
     padding: 16,
-    paddingTop: 8,
-  },
-  card: {
-    borderRadius: 12,
-    marginBottom: 10,
-  },
-  userRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 12,
   },
-  userInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  nameRow: {
+  titleLine: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
     gap: 10,
-    marginBottom: 6,
+    flexWrap: 'wrap',
   },
-  chipRow: {
+  stampsRow: {
     flexDirection: 'row',
-    gap: 6,
-    marginLeft: 34,
+    gap: 8,
+    marginTop: 8,
+  },
+  editorBox: {
+    padding: 16,
+    borderTopWidth: 1,
   },
 });

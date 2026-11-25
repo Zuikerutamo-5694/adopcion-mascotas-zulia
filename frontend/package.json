@@ -1,14 +1,11 @@
 {
-  "name": "adopcion-mascotas",
+  "name": "adopcion-mascotas-web",
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "build:web": "expo export --platform web",
-    "build:apk": "eas build -p android --profile preview"
+    "start": "expo start --web",
+    "web": "expo start --web --port 8081",
+    "build:web": "expo export --platform web"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

@@ -1,26 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
   ScrollView,
   RefreshControl,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
-import {
-  Text,
-  Card,
-  Button,
-  useTheme,
-  Divider,
-} from 'react-native-paper';
-import { Stack, useRouter } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import adminService from '../../../src/services/admin.service';
+import { useAppTheme } from '../../../src/contexts/ThemeContext';
 import LoadingScreen from '../../../src/components/LoadingScreen';
 import ErrorMessage from '../../../src/components/ErrorMessage';
+import {
+  PageHeader,
+  SectionSheet,
+  SpecRow,
+  ActionButton,
+} from '../../../src/components/ui';
 
 export default function AdminIndex() {
-  const theme = useTheme();
+  const { palette, fonts } = useAppTheme();
   const router = useRouter();
 
   const [reportes, setReportes] = useState(null);
@@ -28,61 +28,70 @@ export default function AdminIndex() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  const { width } = Dimensions.get('window');
-  const isWide = width > 768;
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 880;
 
-  useEffect(() => {
-    fetchReportes();
-  }, []);
-
-  const fetchReportes = async () => {
+  const fetchReportes = useCallback(async () => {
     try {
       setError('');
       const result = await adminService.obtenerReportes();
       if (result.success) {
         setReportes(result.data);
       } else {
-        setError(result.message || 'Error al cargar reportes.');
+        setError(result.message || 'No se pudieron consultar los indicadores.');
       }
     } catch (err) {
-      setError('Error al cargar reportes del sistema.');
+      setError(err.response?.data?.message || 'Error al consultar métricas en Supabase.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchReportes();
+    }, [fetchReportes])
+  );
 
   if (loading) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Panel Admin', headerShown: true }} />
-        <LoadingScreen message="Cargando reportes..." />
+        <Stack.Screen options={{ headerShown: false }} />
+        <LoadingScreen message="Consultando registro administrativo en Supabase..." />
       </>
     );
   }
 
-  // Datos de estadísticas (mapeo adaptativo para backend)
   const stats = reportes || {};
-  const totalMascotas = stats.mascotas?.total || stats.totalMascotas || stats.mascotas || 0;
-  const totalUsuarios = stats.usuarios?.total || stats.totalUsuarios || stats.usuarios || 0;
-  const totalRescates = stats.rescates?.total || stats.totalRescates || stats.rescates || 0;
-  const adopcionesCompletadas = stats.mascotas?.por_estado?.adoptada || stats.solicitudes?.por_estado?.aprobada || stats.adopcionesCompletadas || 0;
-  const solicitudesPendientes = stats.solicitudes?.por_estado?.pendiente || stats.solicitudesPendientes || 0;
-  const totalSolicitudes = (stats.solicitudes?.por_estado ? Object.values(stats.solicitudes.por_estado).reduce((a, b) => a + b, 0) : 0) || stats.totalSolicitudes || 0;
+  const totalMascotas = stats.mascotas?.total || 0;
+  const enAdopcion =
+    (stats.mascotas?.por_estado?.en_adopcion || 0) +
+    (stats.mascotas?.por_estado?.en_proceso || 0);
+  const adopcionesCompletadas = stats.mascotas?.por_estado?.adoptada || 0;
+  const enTratamiento = stats.mascotas?.por_estado?.en_tratamiento || 0;
+
+  const totalUsuarios = stats.usuarios?.total || 0;
+  const totalRescates = stats.rescates?.total || 0;
+  const solicitudesPendientes =
+    (stats.solicitudes?.por_estado?.pendiente || 0) +
+    (stats.solicitudes?.por_estado?.en_revision || 0);
+  const totalSolicitudes = stats.solicitudes?.total || 0;
+  const totalCitas = stats.citas?.total || 0;
+
+  const kpiItems = [
+    { code: 'ANIMALES EN REGISTRO', value: totalMascotas, note: `${enAdopcion} disponibles o en evaluación` },
+    { code: 'SOLICITUDES ACTIVAS', value: solicitudesPendientes, note: `De ${totalSolicitudes} recibidas en total` },
+    { code: 'ADOPCIONES CERRADAS', value: adopcionesCompletadas, note: 'Entregas formalizadas' },
+    { code: 'CUENTAS REGISTRADAS', value: totalUsuarios, note: 'Adoptantes, rescatistas y clínica' },
+  ];
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Stack.Screen
-        options={{
-          title: 'Panel de Administración',
-          headerShown: true,
-          headerStyle: { backgroundColor: theme.colors.surface },
-          headerTintColor: theme.colors.primary,
-        }}
-      />
+    <View style={[styles.container, { backgroundColor: palette.canvas }]}>
+      <Stack.Screen options={{ headerShown: false }} />
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={styles.scroll}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -90,184 +99,151 @@ export default function AdminIndex() {
               setRefreshing(true);
               fetchReportes();
             }}
-            colors={[theme.colors.primary]}
+            colors={[palette.primary]}
           />
         }
       >
-        {error ? (
-          <ErrorMessage message={error} onRetry={fetchReportes} />
-        ) : null}
+        <PageHeader
+          eyebrow="SUPERVISIÓN Y AUDITORÍA · SUPABASE EN VIVO"
+          title="Registro operativo de la plataforma"
+          subtitle="Consolidado en tiempo real de fichas animales, procesos de adopción, operativos de rescate y cuentas activas."
+          secondaryActionLabel="Sincronizar"
+          onSecondaryAction={fetchReportes}
+          actionLabel="Directorio de usuarios"
+          onAction={() => router.push('/(tabs)/admin/usuarios')}
+          maxWidth={1080}
+        />
 
-        {/* Título de sección */}
-        <Text
-          variant="titleLarge"
-          style={[styles.sectionTitle, { color: theme.colors.onSurface }]}
-        >
-          Resumen del Sistema
-        </Text>
+        {error ? <ErrorMessage message={error} onRetry={fetchReportes} /> : null}
 
-        {/* Grid de estadísticas */}
-        <View style={[styles.statsGrid, isWide && styles.statsGridWide]}>
-          <StatCard
-            icon="paw"
-            title="Mascotas"
-            value={totalMascotas}
-            color="#E65100"
-            bgColor="#FFF3E0"
-            theme={theme}
-          />
-          <StatCard
-            icon="account-group"
-            title="Usuarios"
-            value={totalUsuarios}
-            color="#1565C0"
-            bgColor="#E3F2FD"
-            theme={theme}
-          />
-          <StatCard
-            icon="file-document-edit"
-            title="Solicitudes"
-            value={totalSolicitudes}
-            color="#6A1B9A"
-            bgColor="#F3E5F5"
-            theme={theme}
-          />
-          <StatCard
-            icon="hand-heart"
-            title="Rescates"
-            value={totalRescates}
-            color="#2E7D32"
-            bgColor="#E8F5E9"
-            theme={theme}
-          />
-          <StatCard
-            icon="heart-circle"
-            title="Adopciones"
-            value={adopcionesCompletadas}
-            color="#C62828"
-            bgColor="#FFEBEE"
-            theme={theme}
-          />
-          <StatCard
-            icon="clock-outline"
-            title="Pendientes"
-            value={solicitudesPendientes}
-            color="#F57F17"
-            bgColor="#FFFDE7"
-            theme={theme}
-          />
+        <View style={styles.body}>
+          <View
+            style={[
+              styles.ledgerBand,
+              {
+                backgroundColor: palette.surface,
+                borderColor: palette.border,
+              },
+            ]}
+          >
+            {kpiItems.map((item, idx) => (
+              <View
+                key={item.code}
+                style={[
+                  styles.kpiCell,
+                  idx > 0 && isDesktop && { borderLeftWidth: 1, borderLeftColor: palette.border },
+                  idx > 0 && !isDesktop && { borderTopWidth: 1, borderTopColor: palette.border },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: palette.inkSecondary,
+                    fontFamily: fonts.mono,
+                    fontSize: 11,
+                    fontWeight: '600',
+                  }}
+                >
+                  {item.code}
+                </Text>
+                <Text
+                  style={{
+                    color: palette.ink,
+                    fontFamily: fonts.serif,
+                    fontSize: 36,
+                    fontWeight: '600',
+                    marginVertical: 4,
+                  }}
+                >
+                  {item.value}
+                </Text>
+                <Text
+                  style={{
+                    color: palette.inkSecondary,
+                    fontFamily: fonts.sans,
+                    fontSize: 12.5,
+                  }}
+                >
+                  {item.note}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={[styles.splitRow, isDesktop && styles.splitRowDesktop]}>
+            <SectionSheet
+              title="Desglose de actividad en base de datos"
+              style={isDesktop && { flex: 1.2 }}
+            >
+              <SpecRow label="Operativos de rescate documentados" value={String(totalRescates)} mono />
+              <SpecRow label="Animales en tratamiento veterinario" value={String(enTratamiento)} mono />
+              <SpecRow label="Postulaciones pendientes o en revisión" value={String(solicitudesPendientes)} mono />
+              <SpecRow label="Citas presenciales registradas" value={String(totalCitas)} mono />
+              <SpecRow label="Total histórico de solicitudes" value={String(totalSolicitudes)} mono last />
+            </SectionSheet>
+
+            <SectionSheet
+              title="Moderación y control de acceso"
+              subtitle="Revisa el estado de las cuentas registradas o suspende perfiles que incumplan las normas de custodia."
+              style={isDesktop && { flex: 0.9 }}
+            >
+              <View style={{ gap: 10 }}>
+                <ActionButton
+                  label="Administrar cuentas de usuarios"
+                  variant="primary"
+                  fullWidth
+                  onPress={() => router.push('/(tabs)/admin/usuarios')}
+                />
+                <ActionButton
+                  label="Revisar bandeja de solicitudes"
+                  variant="secondary"
+                  fullWidth
+                  onPress={() => router.push('/(tabs)/solicitudes')}
+                />
+                <ActionButton
+                  label="Revisar bitácora de rescates"
+                  variant="secondary"
+                  fullWidth
+                  onPress={() => router.push('/(tabs)/rescates')}
+                />
+              </View>
+            </SectionSheet>
+          </View>
         </View>
-
-        <Divider style={styles.divider} />
-
-        {/* Acceso rápido */}
-        <Text
-          variant="titleLarge"
-          style={[styles.sectionTitle, { color: theme.colors.onSurface }]}
-        >
-          Gestión
-        </Text>
-
-        <Card
-          style={[styles.card, { backgroundColor: theme.colors.surface }]}
-          elevation={1}
-        >
-          <Card.Content style={styles.quickActions}>
-            <Button
-              mode="contained"
-              icon="account-cog"
-              onPress={() => router.push('/(tabs)/admin/usuarios')}
-              buttonColor={theme.colors.primary}
-              style={styles.quickBtn}
-              contentStyle={styles.quickBtnContent}
-            >
-              Gestionar Usuarios
-            </Button>
-
-            <Button
-              mode="outlined"
-              icon="refresh"
-              onPress={fetchReportes}
-              textColor={theme.colors.primary}
-              style={styles.quickBtn}
-            >
-              Actualizar Reportes
-            </Button>
-          </Card.Content>
-        </Card>
       </ScrollView>
     </View>
   );
 }
 
-function StatCard({ icon, title, value, color, bgColor, theme }) {
-  return (
-    <Card style={[statStyles.card, { backgroundColor: bgColor }]} elevation={0}>
-      <Card.Content style={statStyles.content}>
-        <MaterialCommunityIcons name={icon} size={32} color={color} />
-        <Text variant="headlineMedium" style={[statStyles.value, { color }]}>
-          {value}
-        </Text>
-        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-          {title}
-        </Text>
-      </Card.Content>
-    </Card>
-  );
-}
-
-const statStyles = StyleSheet.create({
-  card: {
-    borderRadius: 12,
-    minWidth: 140,
-    flex: 1,
-  },
-  content: {
-    alignItems: 'center',
-    padding: 16,
-  },
-  value: {
-    fontWeight: '700',
-    marginTop: 4,
-  },
-});
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    maxWidth: 1000,
-    alignSelf: 'center',
+  container: { flex: 1 },
+  scroll: { paddingBottom: 44 },
+  body: {
+    maxWidth: 1080,
     width: '100%',
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
-  sectionTitle: {
-    fontWeight: '700',
-    marginBottom: 16,
-  },
-  statsGrid: {
+  ledgerBand: {
+    borderRadius: 6,
+    borderWidth: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    marginBottom: 20,
+    overflow: 'hidden',
   },
-  statsGridWide: {
+  kpiCell: {
+    flex: 1,
+    minWidth: 210,
+    padding: 20,
+  },
+  splitRow: {
+    flexDirection: 'column',
     gap: 16,
   },
-  divider: {
-    marginVertical: 24,
-  },
-  card: {
-    borderRadius: 16,
-  },
-  quickActions: {
-    gap: 12,
-    padding: 16,
-  },
-  quickBtn: {
-    borderRadius: 8,
-  },
-  quickBtnContent: {
-    paddingVertical: 6,
+  splitRowDesktop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 20,
   },
 });

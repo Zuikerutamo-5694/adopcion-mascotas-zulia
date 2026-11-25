@@ -1,48 +1,43 @@
-import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+const resolveApiUrl = () => {
+  if (typeof window !== 'undefined' && window.location) {
+    const { protocol, hostname, port } = window.location;
+    const isLocalBrowser =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      /^192\.168\.\d+\.\d+$/.test(hostname) ||
+      /^10\.\d+\.\d+\.\d+$/.test(hostname);
 
-/**
- * Detecta dinámicamente la IP de la computadora en la red local.
- * En dispositivos móviles, 'localhost' apunta al propio celular, por lo que
- * se extrae la IP del host de Expo (Metro) o se usa la IP LAN de la PC.
- */
-const getHostIp = () => {
-  // 1. Si estamos en Expo Go / desarrollo, extraer IP de hostUri
-  const hostUri =
-    Constants.expoConfig?.hostUri ||
-    Constants.manifest?.debuggerHost ||
-    Constants.manifest2?.extra?.expoClient?.hostUri;
-
-  if (hostUri) {
-    const ip = hostUri.split(':')[0];
-    if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
-      return ip;
+    if (!isLocalBrowser) {
+      return `${protocol}//${hostname}${port ? `:${port}` : ''}/api`;
     }
   }
 
-  // 2. Si estamos en navegador web, usar el hostname actual (localhost o IP)
-  if (typeof window !== 'undefined' && window.location?.hostname) {
-    const hostname = window.location.hostname;
-    if (hostname) {
-      return hostname;
-    }
+  if (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '');
   }
 
-  // 3. IP local Ethernet de la computadora para la red Wi-Fi
-  return '192.168.1.200';
+  if (typeof window !== 'undefined' && window.location) {
+    return `http://${window.location.hostname}:4000/api`;
+  }
+
+  return 'http://localhost:4000/api';
 };
 
-const host = getHostIp();
-let API_URL = `http://${host}:4000/api`;
+export const API_URL = resolveApiUrl();
+export const SERVER_ORIGIN = API_URL.replace(/\/api\/?$/, '');
 
-// Si se especificó una URL personalizada en app.json o .env
-try {
-  const extra = Constants.expoConfig?.extra;
-  if (extra?.API_URL) {
-    API_URL = extra.API_URL;
+export function resolveImageUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  if (
+    url.startsWith('http://') ||
+    url.startsWith('https://') ||
+    url.startsWith('data:') ||
+    url.startsWith('blob:')
+  ) {
+    return url;
   }
-} catch (e) {
-  // mantener valor detectado
+  if (url.startsWith('/')) {
+    return `${SERVER_ORIGIN}${url}`;
+  }
+  return `${SERVER_ORIGIN}/${url}`;
 }
-
-export { API_URL, host };

@@ -1,9 +1,7 @@
+const { validationResult } = require('express-validator');
 const adminService = require('../services/admin.service');
 
-/**
- * GET /api/admin/reportes
- */
-async function getReports(req, res, next) {
+async function getReports(_req, res, next) {
   try {
     const reports = await adminService.getReports();
 
@@ -17,9 +15,6 @@ async function getReports(req, res, next) {
   }
 }
 
-/**
- * GET /api/admin/usuarios
- */
 async function listUsers(req, res, next) {
   try {
     const result = await adminService.listUsers(req.query);
@@ -34,22 +29,23 @@ async function listUsers(req, res, next) {
   }
 }
 
-/**
- * PATCH /api/admin/usuarios/:id/estado
- */
 async function updateUserStatus(req, res, next) {
   try {
-    const { estado } = req.body;
-
-    if (!estado) {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        data: null,
-        message: 'El campo estado es obligatorio',
+        data: errors.array(),
+        message: errors.array()[0]?.msg || 'Errores de validación',
       });
     }
 
-    const user = await adminService.updateUserStatus(req.params.id, estado);
+    const { estado } = req.body;
+    const user = await adminService.updateUserStatus(
+      req.params.id,
+      estado,
+      req.user.id_usuario
+    );
 
     res.json({
       success: true,

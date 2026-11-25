@@ -1,186 +1,139 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
   ScrollView,
   Image,
   useWindowDimensions,
-  FlatList,
   Pressable,
   Share,
   Platform,
 } from 'react-native';
-import {
-  Text,
-  Button,
-  Card,
-  Chip,
-  Divider,
-  useTheme,
-  Dialog,
-  Portal,
-  TextInput,
-  Snackbar,
-  List,
-  Badge,
-} from 'react-native-paper';
-import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Snackbar } from 'react-native-paper';
+import { useLocalSearchParams, Stack, useRouter, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import mascotasService from '../../../src/services/mascotas.service';
-import solicitudesService from '../../../src/services/solicitudes.service';
+import { resolveImageUrl } from '../../../src/constants/api';
 import { useAuth } from '../../../src/hooks/useAuth';
+import { useAppTheme } from '../../../src/contexts/ThemeContext';
 import LoadingScreen from '../../../src/components/LoadingScreen';
 import ErrorMessage from '../../../src/components/ErrorMessage';
+import {
+  StatusStamp,
+  FolioCode,
+  ActionButton,
+  SectionSheet,
+  SpecRow,
+  getStatusMeta,
+} from '../../../src/components/ui';
 
-const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/600x400.png?text=Sin+Foto';
+const PLACEHOLDER_IMAGE =
+  'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&w=800&q=80';
 
-const estadoColors = {
-  en_adopcion: '#4CAF50',
-  disponible: '#4CAF50',
-  en_proceso: '#FF9800',
-  adoptada: '#2196F3',
-  adoptado: '#2196F3',
-  en_rescate: '#9C27B0',
-  en_tratamiento: '#F44336',
-};
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
-const estadoLabels = {
-  en_adopcion: 'En adopción',
-  disponible: 'Disponible',
-  en_proceso: 'En proceso',
-  adoptada: 'Adoptada',
-  adoptado: 'Adoptada',
-  en_rescate: 'En rescate',
-  en_tratamiento: 'En tratamiento',
-};
+function generarHTMLPDF(mascota, mainPhotoUrl) {
+  const statusLabel = getStatusMeta(mascota.estado).label;
+  const vacunaRows =
+    (mascota.vacunas || [])
+      .map((v) => {
+        const obj = typeof v === 'string' ? { nombre: v } : v;
+        return `<tr><td>${escapeHtml(obj.nombre || '-')}</td><td>${escapeHtml(
+          obj.fecha || '-'
+        )}</td><td>${escapeHtml(obj.proxima || '-')}</td><td>${escapeHtml(
+          obj.veterinario || '-'
+        )}</td></tr>`;
+      })
+      .join('') ||
+    '<tr><td colspan="4" style="text-align:center;color:#555">Sin vacunas registradas</td></tr>';
 
-function generarHTMLPDF(mascota) {
-  const vacunaRows = (mascota.vacunas || []).map(v =>
-    `<tr><td>${v.nombre}</td><td>${v.fecha || '-'}</td><td>${v.proxima || '-'}</td><td>${v.veterinario || '-'}</td></tr>`
-  ).join('') || '<tr><td colspan="4" style="text-align:center;color:#888">Sin vacunas registradas</td></tr>';
+  const docRows =
+    (mascota.documentos_legales || [])
+      .map((d) => `<li style="margin-bottom:4px;">${escapeHtml(d)}</li>`)
+      .join('') || '<li style="color:#555">Sin constancias adjuntas</li>';
 
-  const docRows = (mascota.documentos_legales || []).map(d =>
-    `<li style="margin-bottom:4px;">📄 ${d}</li>`
-  ).join('') || '<li style="color:#888">Sin documentos adjuntos</li>';
+  const ali = mascota.alimentacion || {};
 
-  return `
-  <!DOCTYPE html>
+  return `<!DOCTYPE html>
   <html lang="es">
   <head>
     <meta charset="UTF-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Expediente de ${mascota.nombre}</title>
+    <title>Expediente #${escapeHtml(mascota.id_mascota)} - ${escapeHtml(mascota.nombre)}</title>
     <style>
-      body { font-family: Arial, sans-serif; padding: 24px; color: #333; font-size: 13px; }
-      h1 { color: #E64A19; border-bottom: 3px solid #E64A19; padding-bottom: 8px; }
-      h2 { color: #BF360C; margin-top: 20px; border-left: 4px solid #FF7043; padding-left: 8px; }
-      .header { display: flex; align-items: center; gap: 24px; margin-bottom: 20px; }
-      .header img { width: 180px; height: 140px; object-fit: cover; border-radius: 12px; border: 2px solid #FF7043; }
-      .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
-      .info-item { background: #FFF3E0; border-radius: 6px; padding: 8px 12px; }
-      .info-label { font-size: 11px; color: #E64A19; font-weight: bold; text-transform: uppercase; }
-      .info-value { font-size: 13px; color: #333; margin-top: 2px; }
-      table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-      th { background: #E64A19; color: white; padding: 8px 10px; text-align: left; font-size: 12px; }
-      td { border-bottom: 1px solid #eee; padding: 7px 10px; font-size: 12px; }
-      tr:nth-child(even) td { background: #FFF8F0; }
-      .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: bold; color: white; }
-      .badge-verde { background: #4CAF50; }
-      .badge-naranja { background: #FF9800; }
-      .badge-azul { background: #2196F3; }
-      .badge-rojo { background: #F44336; }
-      .section-box { background: #FFF3E0; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
-      .compat-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-      .compat-chip { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: bold; }
-      .chip-si { background: #E8F5E9; color: #2E7D32; border: 1px solid #A5D6A7; }
-      .chip-no { background: #FFEBEE; color: #C62828; border: 1px solid #EF9A9A; }
-      footer { margin-top: 32px; border-top: 1px solid #ddd; padding-top: 12px; color: #888; font-size: 11px; text-align: center; }
+      body { font-family: Georgia, 'Times New Roman', serif; padding: 32px; color: #171A18; font-size: 13px; line-height: 1.5; }
+      .masthead { display: flex; justify-content: space-between; border-bottom: 2px solid #134E3A; padding-bottom: 12px; margin-bottom: 24px; font-family: Arial, sans-serif; }
+      .folio { font-family: monospace; font-size: 12px; color: #464D48; }
+      .header { display: flex; align-items: flex-start; gap: 24px; margin-bottom: 24px; }
+      .header img { width: 190px; height: 140px; object-fit: cover; border-radius: 4px; border: 1px solid #CEC8BC; }
+      h1 { margin: 0 0 6px 0; font-size: 26px; color: #171A18; }
+      h2 { font-size: 15px; color: #134E3A; margin: 22px 0 8px 0; border-bottom: 1px solid #CEC8BC; padding-bottom: 4px; font-family: Arial, sans-serif; text-transform: uppercase; letter-spacing: 0.4px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; font-family: Arial, sans-serif; }
+      th { background: #EDE9DF; color: #171A18; padding: 7px 10px; text-align: left; font-size: 11.5px; border: 1px solid #CEC8BC; }
+      td { border: 1px solid #CEC8BC; padding: 7px 10px; font-size: 12px; }
+      footer { margin-top: 32px; border-top: 1px solid #CEC8BC; padding-top: 10px; color: #464D48; font-size: 11px; font-family: Arial, sans-serif; display: flex; justify-content: space-between; }
     </style>
   </head>
   <body>
+    <div class="masthead">
+      <div><strong>RED COMUNITARIA DE ADOPCIÓN Y RESCATE · ESTADO ZULIA</strong></div>
+      <div class="folio">FICHA-${String(mascota.id_mascota || '').padStart(3, '0')} · ${escapeHtml(statusLabel)}</div>
+    </div>
+
     <div class="header">
-      <img src="${mascota.foto_principal || PLACEHOLDER_IMAGE}" alt="${mascota.nombre}"/>
+      <img src="${escapeHtml(mainPhotoUrl)}" alt="${escapeHtml(mascota.nombre)}"/>
       <div>
-        <h1>🐾 ${mascota.nombre}</h1>
-        <p><strong>Raza:</strong> ${mascota.raza || 'No especificada'}</p>
-        <p><strong>Especie:</strong> ${(mascota.especie || '').charAt(0).toUpperCase() + (mascota.especie || '').slice(1)}</p>
-        <p>
-          <span class="badge ${mascota.estado === 'adoptado' || mascota.estado === 'adoptada' ? 'badge-azul' : mascota.estado === 'en_proceso' ? 'badge-naranja' : mascota.estado === 'en_tratamiento' ? 'badge-rojo' : 'badge-verde'}">
-            ${estadoLabels[mascota.estado] || mascota.estado || 'En adopción'}
-          </span>
-        </p>
+        <h1>${escapeHtml(mascota.nombre)}</h1>
+        <p style="margin:4px 0;font-family:Arial,sans-serif;"><strong>Especie y raza:</strong> ${escapeHtml(mascota.especie || '')} · ${escapeHtml(mascota.raza || 'Mestizo')}</p>
+        <p style="margin:4px 0;font-family:Arial,sans-serif;"><strong>Edad / Sexo / Tamaño:</strong> ${escapeHtml(mascota.edad_aprox || 'No indicada')} · ${escapeHtml(mascota.sexo || '-')} · ${escapeHtml(mascota.tamano || '-')}</p>
+        <p style="margin:4px 0;font-family:Arial,sans-serif;"><strong>Ubicación actual:</strong> ${escapeHtml(mascota.ubicacion || 'No especificada')}</p>
       </div>
     </div>
 
-    <h2>📋 Información General</h2>
-    <div class="info-grid">
-      <div class="info-item"><div class="info-label">Edad</div><div class="info-value">${mascota.edad_aprox || (mascota.edad ? mascota.edad + ' años' : 'No especificada')}</div></div>
-      <div class="info-item"><div class="info-label">Sexo</div><div class="info-value">${mascota.sexo || 'No especificado'}</div></div>
-      <div class="info-item"><div class="info-label">Tamaño</div><div class="info-value">${mascota.tamano || 'No especificado'}</div></div>
-      <div class="info-item"><div class="info-label">Peso</div><div class="info-value">${mascota.peso ? mascota.peso + ' kg' : 'No especificado'}</div></div>
-      <div class="info-item"><div class="info-label">Color</div><div class="info-value">${mascota.color || 'No especificado'}</div></div>
-      <div class="info-item"><div class="info-label">Ubicación</div><div class="info-value">${mascota.ubicacion || 'No especificada'}</div></div>
-      <div class="info-item"><div class="info-label">Fecha de Rescate</div><div class="info-value">${mascota.fecha_rescate || 'No especificada'}</div></div>
-      <div class="info-item"><div class="info-label">Lugar de Rescate</div><div class="info-value">${mascota.lugar_rescate || 'No especificado'}</div></div>
-    </div>
+    ${mascota.descripcion ? `<p><strong>Reseña:</strong> ${escapeHtml(mascota.descripcion)}</p>` : ''}
 
-    ${mascota.descripcion ? `<div class="section-box"><strong>Descripción:</strong><br/>${mascota.descripcion}</div>` : ''}
-
-    <h2>🏥 Salud y Vacunas</h2>
-    <div class="info-grid">
-      <div class="info-item"><div class="info-label">Condición de Salud</div><div class="info-value">${mascota.condicion_salud || 'No especificada'}</div></div>
-      <div class="info-item"><div class="info-label">Esterilizado/a</div><div class="info-value">${mascota.esterilizado ? '✅ Sí' : '❌ No'}</div></div>
-      <div class="info-item"><div class="info-label">Microchip</div><div class="info-value">${mascota.microchip ? '✅ Sí — ' + (mascota.numero_microchip || '') : '❌ No'}</div></div>
-      <div class="info-item"><div class="info-label">Alergias</div><div class="info-value">${mascota.alergias || 'Ninguna'}</div></div>
-      <div class="info-item"><div class="info-label">Enfermedades Previas</div><div class="info-value">${mascota.enfermedades_previas || 'Ninguna'}</div></div>
-      <div class="info-item"><div class="info-label">Medicamentos Actuales</div><div class="info-value">${mascota.medicamentos_actuales || 'Ninguno'}</div></div>
-    </div>
-
-    <strong>Historial de Vacunación:</strong>
+    <h2>Condición Clínica y Vacunación</h2>
     <table>
-      <thead><tr><th>Vacuna</th><th>Fecha Aplicación</th><th>Próxima Dosis</th><th>Veterinario</th></tr></thead>
+      <tbody>
+        <tr><th>Condición general</th><td>${escapeHtml(mascota.condicion_salud || 'No especificada')}</td><th>Esterilizado</th><td>${mascota.esterilizado ? 'Sí' : 'No'}</td></tr>
+        <tr><th>Peso</th><td>${mascota.peso ? escapeHtml(mascota.peso + ' kg') : 'No registrado'}</td><th>Microchip</th><td>${mascota.microchip ? 'Sí (' + escapeHtml(mascota.numero_microchip || '') + ')' : 'No'}</td></tr>
+        <tr><th>Alergias</th><td>${escapeHtml(mascota.alergias || 'Ninguna')}</td><th>Medicamentos</th><td>${escapeHtml(mascota.medicamentos_actuales || 'Ninguno')}</td></tr>
+      </tbody>
+    </table>
+
+    <table style="margin-top:12px;">
+      <thead><tr><th>Vacuna</th><th>Aplicación</th><th>Próxima dosis</th><th>Profesional</th></tr></thead>
       <tbody>${vacunaRows}</tbody>
     </table>
 
-    <h2>🍽️ Alimentación</h2>
-    ${mascota.alimentacion ? `
-    <div class="info-grid">
-      <div class="info-item"><div class="info-label">Tipo de Alimentación</div><div class="info-value">${mascota.alimentacion.tipo || '-'}</div></div>
-      <div class="info-item"><div class="info-label">Frecuencia</div><div class="info-value">${mascota.alimentacion.frecuencia || '-'}</div></div>
-      <div class="info-item"><div class="info-label">Cantidad</div><div class="info-value">${mascota.alimentacion.cantidad || '-'}</div></div>
-      <div class="info-item"><div class="info-label">Marca/Producto</div><div class="info-value">${mascota.alimentacion.marca || '-'}</div></div>
-      <div class="info-item" style="grid-column: span 2;"><div class="info-label">Restricciones Alimenticias</div><div class="info-value">${mascota.alimentacion.restricciones || 'Ninguna'}</div></div>
-    </div>` : '<p style="color:#888">Sin información de alimentación</p>'}
+    <h2>Plan Nutricional</h2>
+    <table>
+      <tbody>
+        <tr><th>Tipo</th><td>${escapeHtml(ali.tipo || '-')}</td><th>Frecuencia</th><td>${escapeHtml(ali.frecuencia || '-')}</td></tr>
+        <tr><th>Ración</th><td>${escapeHtml(ali.cantidad || '-')}</td><th>Referencia</th><td>${escapeHtml(ali.marca || '-')}</td></tr>
+      </tbody>
+    </table>
 
-    <h2>🧠 Comportamiento y Compatibilidad</h2>
-    <div class="section-box">
-      <p><strong>Comportamiento:</strong> ${mascota.comportamiento || 'No especificado'}</p>
-      <p><strong>Nivel de Ejercicio:</strong> ${mascota.nivel_ejercicio || 'No especificado'}</p>
-      <div class="compat-row">
-        <span class="compat-chip ${mascota.compatible_ninos ? 'chip-si' : 'chip-no'}">${mascota.compatible_ninos ? '✅' : '❌'} Niños</span>
-        <span class="compat-chip ${mascota.compatible_perros ? 'chip-si' : 'chip-no'}">${mascota.compatible_perros ? '✅' : '❌'} Perros</span>
-        <span class="compat-chip ${mascota.compatible_gatos ? 'chip-si' : 'chip-no'}">${mascota.compatible_gatos ? '✅' : '❌'} Gatos</span>
-      </div>
-    </div>
-
-    <h2>📄 Documentos Legales</h2>
-    <div class="section-box">
-      <ul style="margin:0; padding-left: 20px;">
-        ${docRows}
-      </ul>
-    </div>
+    <h2>Constancias Documentales</h2>
+    <ul style="font-family:Arial,sans-serif;font-size:12px;">${docRows}</ul>
 
     <footer>
-      Plataforma Colaborativa de Adopción de Mascotas • Estado Zulia, Venezuela<br/>
-      Documento generado el ${new Date().toLocaleDateString('es-VE', { year: 'numeric', month: 'long', day: 'numeric' })}
+      <span>Adopción Zulia · Registro Comunitario</span>
+      <span>Emitido el ${new Date().toLocaleDateString('es-VE')}</span>
     </footer>
   </body>
   </html>`;
 }
 
 export default function MascotaDetail() {
-  const theme = useTheme();
+  const { palette, fonts } = useAppTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const { user } = useAuth();
@@ -190,108 +143,96 @@ export default function MascotaDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedPhoto, setSelectedPhoto] = useState(0);
-  const [activeTab, setActiveTab] = useState('info'); // 'info' | 'salud' | 'alimentacion' | 'legal'
+  const [activeTab, setActiveTab] = useState('info');
 
-  const [adoptDialog, setAdoptDialog] = useState(false);
-  const [motivo, setMotivo] = useState('');
-  const [experienciaAdop, setExperienciaAdop] = useState('');
-  const [adoptLoading, setAdoptLoading] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [exportingPDF, setExportingPDF] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [snackMessage, setSnackMessage] = useState('');
   const [snackVisible, setSnackVisible] = useState(false);
 
   const { width } = useWindowDimensions();
-  const isWide = width > 768;
+  const isDesktop = width >= 900;
 
-  useEffect(() => {
-    fetchMascota();
-  }, [id]);
-
-  const fetchMascota = async () => {
+  const fetchMascota = useCallback(async () => {
     try {
-      setLoading(true);
       setError('');
       const result = await mascotasService.obtener(id);
       if (result.success) {
         setMascota(result.data);
       } else {
-        setError(result.message || 'Error al cargar mascota.');
+        setError(result.message || 'No se pudo cargar la ficha.');
       }
     } catch (err) {
-      setError('Error al cargar la mascota.');
+      setError(err.response?.data?.message || 'Error al consultar la ficha en el servidor.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
-  const handleAdopt = async () => {
-    if (!motivo.trim()) {
-      setSnackMessage('Por favor indica el motivo de adopción.');
-      setSnackVisible(true);
-      return;
-    }
-    setAdoptLoading(true);
-    try {
-      const result = await solicitudesService.crear({
-        mascotaId: id,
-        motivo: motivo.trim(),
-        experiencia: experienciaAdop.trim(),
-      });
-      if (result.success) {
-        setAdoptDialog(false);
-        setMotivo('');
-        setExperienciaAdop('');
-        setSnackMessage('¡Solicitud de adopción enviada exitosamente!');
-        setSnackVisible(true);
-        fetchMascota();
-      } else {
-        setSnackMessage(result.message || 'Error al enviar solicitud.');
-        setSnackVisible(true);
-      }
-    } catch (err) {
-      setSnackMessage(err.response?.data?.message || 'Error al enviar la solicitud.');
-      setSnackVisible(true);
-    } finally {
-      setAdoptLoading(false);
-    }
-  };
+  useFocusEffect(
+    useCallback(() => {
+      fetchMascota();
+    }, [fetchMascota])
+  );
 
   const handlePickPhoto = async () => {
     try {
-      const permResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permResult.granted) {
-        setSnackMessage('Se necesitan permisos para acceder a la galería.');
-        setSnackVisible(true);
-        return;
-      }
       const pickerResult = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
+        quality: 0.85,
       });
       if (!pickerResult.canceled && pickerResult.assets?.length > 0) {
         setUploadingPhoto(true);
         const asset = pickerResult.assets[0];
         const formData = new FormData();
-        const filename = asset.uri.split('/').pop() || 'photo.jpg';
-        const match = /\.(\w+)$/.exec(filename);
-        const type = match ? `image/${match[1]}` : 'image/jpeg';
-        formData.append('foto', { uri: asset.uri, name: filename, type });
+
+        if (Platform.OS === 'web') {
+          if (asset.file) {
+            formData.append('foto', asset.file, asset.fileName || asset.file.name || 'foto.jpg');
+          } else {
+            const resp = await fetch(asset.uri);
+            const blob = await resp.blob();
+            formData.append('foto', blob, `mascota-${id}-${Date.now()}.jpg`);
+          }
+        } else {
+          const filename = asset.uri.split('/').pop() || 'photo.jpg';
+          formData.append('foto', { uri: asset.uri, name: filename, type: 'image/jpeg' });
+        }
+
         const result = await mascotasService.subirFotos(id, formData);
         if (result.success) {
-          setSnackMessage('Foto subida exitosamente.');
+          setSnackMessage('Fotografía incorporada al expediente.');
           setSnackVisible(true);
           fetchMascota();
         }
       }
     } catch (err) {
-      setSnackMessage('Error al subir la foto.');
+      setSnackMessage(err.response?.data?.message || 'No se pudo adjuntar la fotografía.');
       setSnackVisible(true);
     } finally {
       setUploadingPhoto(false);
+    }
+  };
+
+  const handleDeleteMascota = async () => {
+    setDeleting(true);
+    try {
+      const res = await mascotasService.eliminar(id);
+      if (res.success) {
+        setDeleteDialog(false);
+        router.replace('/(tabs)/mascotas');
+      }
+    } catch (err) {
+      setDeleteDialog(false);
+      setSnackMessage(
+        err.response?.data?.message || 'No cuentas con permisos para retirar esta ficha.'
+      );
+      setSnackVisible(true);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -299,24 +240,30 @@ export default function MascotaDetail() {
     if (!mascota) return;
     setExportingPDF(true);
     try {
-      const html = generarHTMLPDF(mascota);
+      const rawUrl =
+        mascota.foto_principal ||
+        (mascota.fotos && mascota.fotos[0]?.url_imagen) ||
+        PLACEHOLDER_IMAGE;
+      const mainPhotoUrl = resolveImageUrl(rawUrl) || PLACEHOLDER_IMAGE;
+      const html = generarHTMLPDF(mascota, mainPhotoUrl);
       if (Platform.OS === 'web') {
-        // En web: abrir ventana de impresión
         const win = window.open('', '_blank');
-        win.document.write(html);
-        win.document.close();
-        win.print();
+        if (win) {
+          win.document.write(html);
+          win.document.close();
+          win.focus();
+          win.print();
+        }
       } else {
-        // En móvil: usar Share API con contenido HTML
         await Share.share({
-          message: `Expediente de ${mascota.nombre}\n\nEspecie: ${mascota.especie}\nEdad: ${mascota.edad_aprox || mascota.edad + ' años'}\nEstado: ${estadoLabels[mascota.estado] || mascota.estado}\n\nDescripción: ${mascota.descripcion || '-'}\n\nVacunas: ${(mascota.vacunas || []).map(v => v.nombre).join(', ') || 'Ninguna'}\nAlimentación: ${mascota.alimentacion?.tipo || '-'}\n\n— Plataforma de Adopción de Mascotas, Estado Zulia`,
-          title: `Expediente - ${mascota.nombre}`,
+          message: `Expediente de ${mascota.nombre} (${mascota.especie})`,
+          title: `Expediente ${mascota.nombre}`,
         });
       }
-      setSnackMessage('PDF exportado / compartido correctamente.');
+      setSnackMessage('Documento preparado para impresión o guardado en PDF.');
       setSnackVisible(true);
-    } catch (err) {
-      setSnackMessage('Error al exportar el PDF.');
+    } catch (_) {
+      setSnackMessage('No se pudo abrir la vista de impresión.');
       setSnackVisible(true);
     } finally {
       setExportingPDF(false);
@@ -326,8 +273,8 @@ export default function MascotaDetail() {
   if (loading) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Cargando...', headerShown: true }} />
-        <LoadingScreen message="Cargando mascota..." />
+        <Stack.Screen options={{ title: 'Cargando expediente...' }} />
+        <LoadingScreen message="Cargando expediente completo..." />
       </>
     );
   }
@@ -335,443 +282,694 @@ export default function MascotaDetail() {
   if (error || !mascota) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Error', headerShown: true }} />
+        <Stack.Screen options={{ title: 'Ficha no disponible' }} />
         <ErrorMessage message={error || 'Mascota no encontrada.'} onRetry={fetchMascota} />
       </>
     );
   }
 
-  const fotos =
-    mascota.fotos && mascota.fotos.length > 0
-      ? mascota.fotos.map((f) => f.url_imagen || f.url || f)
-      : mascota.foto_principal ? [mascota.foto_principal] : [PLACEHOLDER_IMAGE];
+  const fotosObjs = Array.isArray(mascota.fotos) ? mascota.fotos : [];
+  const fotosUrls =
+    fotosObjs.length > 0
+      ? fotosObjs.map((f) => resolveImageUrl(f.url_imagen || f) || PLACEHOLDER_IMAGE)
+      : [resolveImageUrl(mascota.foto_principal) || PLACEHOLDER_IMAGE];
+
   const estado = mascota.estado || 'en_adopcion';
-  const canAdopt = rol === 'adoptante' && (estado === 'en_adopcion' || estado === 'disponible');
-  const canUploadPhotos = rol === 'rescatista' || rol === 'veterinario' || rol === 'administrador';
-  const canExport = true;
+  const isOwnerRescatista =
+    rol === 'rescatista' && Number(mascota.id_publicador) === Number(user?.id_usuario);
+  const canAdopt =
+    rol === 'adoptante' && (estado === 'en_adopcion' || estado === 'en_proceso');
+  const canEdit =
+    rol === 'administrador' || rol === 'admin' || rol === 'veterinario' || isOwnerRescatista;
+  const canDelete = rol === 'administrador' || rol === 'admin' || isOwnerRescatista;
+  const canManageExpediente =
+    rol === 'veterinario' || rol === 'administrador' || rol === 'admin';
 
   const tabs = [
-    { key: 'info', icon: 'information', label: 'Info' },
-    { key: 'salud', icon: 'medical-bag', label: 'Salud' },
-    { key: 'alimentacion', icon: 'food-apple', label: 'Nutrición' },
-    { key: 'legal', icon: 'file-document', label: 'Legal' },
+    { key: 'info', label: 'Ficha general' },
+    { key: 'salud', label: 'Salud y vacunas' },
+    { key: 'alimentacion', label: 'Nutrición' },
+    { key: 'legal', label: 'Constancias' },
   ];
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: palette.canvas }]}>
       <Stack.Screen
         options={{
-          title: mascota.nombre || 'Mascota',
-          headerShown: true,
-          headerStyle: { backgroundColor: theme.colors.surface },
-          headerTintColor: theme.colors.primary,
-          headerRight: () => (
-            <Button
-              icon="file-pdf-box"
-              mode="text"
-              compact
-              onPress={handleExportarPDF}
-              loading={exportingPDF}
-              textColor={theme.colors.primary}
-            >
-              PDF
-            </Button>
-          ),
+          title: `Ficha: ${mascota.nombre}`,
         }}
       />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={[styles.mainContent, isWide && styles.mainContentWide]}>
-
-          {/* Galería */}
-          <View style={styles.photoSection}>
-            <Image
-              source={{ uri: fotos[selectedPhoto] || fotos[0] }}
-              style={[styles.mainPhoto, isWide && styles.mainPhotoWide]}
-              resizeMode="cover"
-            />
-            {fotos.length > 1 && (
-              <FlatList
-                horizontal
-                data={fotos}
-                keyExtractor={(_, i) => `thumb-${i}`}
-                renderItem={({ item, index }) => (
-                  <Pressable onPress={() => setSelectedPhoto(index)}>
-                    <Image
-                      source={{ uri: item }}
-                      style={[
-                        styles.thumbnail,
-                        selectedPhoto === index && { borderColor: theme.colors.primary, borderWidth: 3 },
-                      ]}
-                    />
-                  </Pressable>
-                )}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.thumbnailList}
-              />
-            )}
-            <View style={styles.photoActions}>
-              {canUploadPhotos && (
-                <Button
-                  mode="outlined"
-                  icon="camera-plus"
-                  onPress={handlePickPhoto}
-                  loading={uploadingPhoto}
-                  disabled={uploadingPhoto}
-                  style={{ flex: 1, borderColor: theme.colors.primary }}
-                  textColor={theme.colors.primary}
-                  compact
-                >
-                  {uploadingPhoto ? 'Subiendo...' : 'Agregar foto'}
-                </Button>
-              )}
-              <Button
-                mode="outlined"
-                icon="file-pdf-box"
-                onPress={handleExportarPDF}
-                loading={exportingPDF}
-                disabled={exportingPDF}
-                style={{ flex: 1, borderColor: '#E64A19' }}
-                textColor="#E64A19"
-                compact
-              >
-                Exportar PDF
-              </Button>
-            </View>
-          </View>
-
-          {/* Nombre y estado */}
-          <View style={styles.nameRow}>
-            <Text variant="headlineSmall" style={[styles.petName, { color: theme.colors.onBackground }]}>
-              {mascota.nombre}
-            </Text>
-            <Chip
-              style={{ backgroundColor: estadoColors[estado] || '#9E9E9E' }}
-              textStyle={{ color: '#FFF', fontWeight: '600' }}
-            >
-              {estadoLabels[estado] || estado}
-            </Chip>
-          </View>
-
-          <Text
-            variant="bodyMedium"
-            style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12 }}
+        <View style={styles.breadcrumbRow}>
+          <Pressable
+            onPress={() => router.push('/(tabs)/mascotas')}
+            accessibilityRole="link"
+            style={styles.backLink}
           >
-            {mascota.raza || 'Raza no especificada'} • {mascota.edad_aprox || (mascota.edad ? mascota.edad + ' años' : '')} • {mascota.sexo || ''} • {mascota.tamano || ''}
-          </Text>
+            <Text style={{ color: palette.primaryText, fontFamily: fonts.sans, fontSize: 13.5, fontWeight: '600' }}>
+              Volver al catálogo
+            </Text>
+          </Pressable>
+          <FolioCode prefix="FICHA" id={mascota.id_mascota} />
+        </View>
 
-          {/* Tabs */}
-          <View style={[styles.tabRow, { borderBottomColor: theme.colors.outline }]}>
-            {tabs.map((tab) => (
-              <Pressable
-                key={tab.key}
-                style={[
-                  styles.tabItem,
-                  activeTab === tab.key && { borderBottomColor: theme.colors.primary, borderBottomWidth: 2 },
-                ]}
-                onPress={() => setActiveTab(tab.key)}
-              >
-                <MaterialCommunityIcons
-                  name={tab.icon}
-                  size={18}
-                  color={activeTab === tab.key ? theme.colors.primary : theme.colors.onSurfaceVariant}
-                />
-                <Text
-                  variant="labelMedium"
-                  style={{ color: activeTab === tab.key ? theme.colors.primary : theme.colors.onSurfaceVariant, marginTop: 2 }}
+        <View style={[styles.dossierGrid, isDesktop && styles.dossierGridDesktop]}>
+          <View style={[styles.leftRail, isDesktop && styles.leftRailDesktop]}>
+            <View
+              style={[
+                styles.photoFrame,
+                {
+                  backgroundColor: palette.surface,
+                  borderColor: palette.border,
+                },
+              ]}
+            >
+              <Image
+                source={{ uri: fotosUrls[selectedPhoto] || fotosUrls[0] }}
+                style={[styles.mainPhoto, isDesktop && styles.mainPhotoDesktop]}
+                resizeMode="cover"
+              />
+              {fotosUrls.length > 1 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={[
+                    styles.thumbRow,
+                    { borderTopColor: palette.border },
+                  ]}
                 >
-                  {tab.label}
-                </Text>
-              </Pressable>
-            ))}
+                  {fotosUrls.map((url, idx) => (
+                    <Pressable
+                      key={`thumb-${idx}`}
+                      onPress={() => setSelectedPhoto(idx)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Fotografía ${idx + 1}`}
+                    >
+                      <Image
+                        source={{ uri: url }}
+                        style={[
+                          styles.thumb,
+                          {
+                            borderColor:
+                              selectedPhoto === idx ? palette.primary : palette.border,
+                            borderWidth: selectedPhoto === idx ? 2 : 1,
+                          },
+                        ]}
+                      />
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : null}
+            </View>
+
+            <SectionSheet title="Acciones del expediente">
+              <View style={styles.actionStack}>
+                {canAdopt ? (
+                  <ActionButton
+                    label={`Postularme para adoptar a ${mascota.nombre}`}
+                    variant="accent"
+                    fullWidth
+                    onPress={() =>
+                      router.push(
+                        `/(tabs)/solicitudes/nueva?mascotaId=${
+                          mascota.id_mascota
+                        }&mascotaNombre=${encodeURIComponent(mascota.nombre)}`
+                      )
+                    }
+                  />
+                ) : null}
+
+                {canManageExpediente ? (
+                  <ActionButton
+                    label="Abrir historia clínica veterinaria"
+                    variant="primary"
+                    fullWidth
+                    onPress={() => router.push(`/(tabs)/expedientes/${mascota.id_mascota}`)}
+                  />
+                ) : null}
+
+                <View style={styles.secondaryActionsGrid}>
+                  <ActionButton
+                    label={exportingPDF ? 'Generando...' : 'Imprimir PDF'}
+                    variant="secondary"
+                    loading={exportingPDF}
+                    onPress={handleExportarPDF}
+                    style={{ flex: 1 }}
+                  />
+                  {canEdit ? (
+                    <ActionButton
+                      label={uploadingPhoto ? 'Subiendo...' : 'Añadir foto'}
+                      variant="secondary"
+                      loading={uploadingPhoto}
+                      onPress={handlePickPhoto}
+                      style={{ flex: 1 }}
+                    />
+                  ) : null}
+                </View>
+
+                {(canEdit || canDelete) ? (
+                  <View style={styles.secondaryActionsGrid}>
+                    {canEdit ? (
+                      <ActionButton
+                        label="Editar datos"
+                        variant="secondary"
+                        onPress={() =>
+                          router.push(`/(tabs)/mascotas/nueva?editId=${mascota.id_mascota}`)
+                        }
+                        style={{ flex: 1 }}
+                      />
+                    ) : null}
+                    {canDelete ? (
+                      <ActionButton
+                        label="Retirar ficha"
+                        variant="dangerOutline"
+                        onPress={() => setDeleteDialog((v) => !v)}
+                        style={{ flex: 1 }}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {deleteDialog ? (
+                  <View
+                    style={[
+                      styles.confirmBox,
+                      {
+                        backgroundColor: palette.status.danger.bg,
+                        borderColor: palette.status.danger.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: palette.status.danger.fg,
+                        fontFamily: fonts.sans,
+                        fontSize: 13,
+                        fontWeight: '600',
+                      }}
+                    >
+                      ¿Confirmas eliminar permanentemente la publicación de {mascota.nombre}?
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end' }}>
+                      <ActionButton
+                        label="Cancelar"
+                        variant="secondary"
+                        compact
+                        onPress={() => setDeleteDialog(false)}
+                      />
+                      <ActionButton
+                        label="Confirmar retiro"
+                        variant="danger"
+                        compact
+                        loading={deleting}
+                        onPress={handleDeleteMascota}
+                      />
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+            </SectionSheet>
           </View>
 
-          {/* Tab: Info General */}
-          {activeTab === 'info' && (
-            <Card style={[styles.tabCard, { backgroundColor: theme.colors.surface }]} elevation={1}>
-              <Card.Content>
-                <Text variant="titleSmall" style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-                  Información General
-                </Text>
-                <View style={styles.detailsGrid}>
-                  <DetailItem icon="paw" label="Especie" value={mascota.especie || '-'} theme={theme} />
-                  <DetailItem icon="tag" label="Raza" value={mascota.raza || '-'} theme={theme} />
-                  <DetailItem icon="calendar-range" label="Edad" value={mascota.edad_aprox || (mascota.edad ? mascota.edad + ' años' : '-')} theme={theme} />
-                  <DetailItem icon="gender-male-female" label="Sexo" value={mascota.sexo || '-'} theme={theme} />
-                  <DetailItem icon="weight" label="Peso" value={mascota.peso ? mascota.peso + ' kg' : '-'} theme={theme} />
-                  <DetailItem icon="palette" label="Color" value={mascota.color || '-'} theme={theme} />
-                  <DetailItem icon="map-marker" label="Ubicación" value={mascota.ubicacion || '-'} theme={theme} />
-                  <DetailItem icon="calendar" label="Fecha Rescate" value={mascota.fecha_rescate || '-'} theme={theme} />
-                  <DetailItem icon="map-search" label="Lugar Rescate" value={mascota.lugar_rescate || '-'} theme={theme} />
-                  <DetailItem icon="run" label="Nivel Ejercicio" value={mascota.nivel_ejercicio || '-'} theme={theme} />
-                </View>
+          <View style={[styles.rightCol, isDesktop && styles.rightColDesktop]}>
+            <View
+              style={[
+                styles.titleSheet,
+                {
+                  backgroundColor: palette.surface,
+                  borderColor: palette.border,
+                },
+              ]}
+            >
+              <View style={styles.titleTopRow}>
+                <FolioCode prefix="EXPEDIENTE" id={mascota.id_mascota} />
+                <StatusStamp status={estado} />
+              </View>
 
-                {mascota.descripcion && (
-                  <>
-                    <Divider style={styles.divider} />
-                    <Text variant="titleSmall" style={[styles.sectionTitle, { color: theme.colors.primary }]}>Descripción</Text>
-                    <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, lineHeight: 22 }}>
-                      {mascota.descripcion}
-                    </Text>
-                  </>
-                )}
+              <Text
+                style={[
+                  styles.petName,
+                  { color: palette.ink, fontFamily: fonts.serif },
+                ]}
+              >
+                {mascota.nombre}
+              </Text>
 
-                <Divider style={styles.divider} />
-                <Text variant="titleSmall" style={[styles.sectionTitle, { color: theme.colors.primary }]}>Comportamiento</Text>
-                <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12 }}>
-                  {mascota.comportamiento || 'No especificado'}
-                </Text>
-                <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 6 }}>Compatibilidad:</Text>
-                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                  <Chip
-                    icon={mascota.compatible_ninos ? 'check-circle' : 'close-circle'}
-                    style={{ backgroundColor: mascota.compatible_ninos ? '#E8F5E9' : '#FFEBEE' }}
-                    textStyle={{ color: mascota.compatible_ninos ? '#2E7D32' : '#C62828', fontSize: 11 }}
-                    compact
-                  >
-                    Niños
-                  </Chip>
-                  <Chip
-                    icon={mascota.compatible_perros ? 'check-circle' : 'close-circle'}
-                    style={{ backgroundColor: mascota.compatible_perros ? '#E8F5E9' : '#FFEBEE' }}
-                    textStyle={{ color: mascota.compatible_perros ? '#2E7D32' : '#C62828', fontSize: 11 }}
-                    compact
-                  >
-                    Perros
-                  </Chip>
-                  <Chip
-                    icon={mascota.compatible_gatos ? 'check-circle' : 'close-circle'}
-                    style={{ backgroundColor: mascota.compatible_gatos ? '#E8F5E9' : '#FFEBEE' }}
-                    textStyle={{ color: mascota.compatible_gatos ? '#2E7D32' : '#C62828', fontSize: 11 }}
-                    compact
-                  >
-                    Gatos
-                  </Chip>
-                </View>
+              <Text
+                style={{
+                  color: palette.inkSecondary,
+                  fontFamily: fonts.sans,
+                  fontSize: 14.5,
+                  lineHeight: 22,
+                }}
+              >
+                {mascota.raza || 'Mestizo'} · {mascota.edad_aprox || 'Edad por precisar'} ·{' '}
+                {mascota.sexo || '-'} · Tamaño {mascota.tamano || '-'}
+                {mascota.publicador_nombre
+                  ? ` · Resguardo a cargo de ${mascota.publicador_nombre}`
+                  : ''}
+              </Text>
 
-                <Divider style={styles.divider} />
-                <View style={styles.actions}>
-                  {canAdopt && (
-                    <Button
-                      mode="contained"
-                      icon="heart"
-                      onPress={() =>
-                        router.push(
-                          `/(tabs)/solicitudes/nueva?mascotaId=${mascota.id_mascota || mascota.id}&mascotaNombre=${encodeURIComponent(mascota.nombre)}`
-                        )
-                      }
-                      buttonColor={theme.colors.primary}
-                      textColor={theme.colors.onPrimary}
-                      style={styles.actionButton}
-                      contentStyle={styles.actionButtonContent}
-                    >
-                      Solicitar Adopción
-                    </Button>
-                  )}
-                </View>
-              </Card.Content>
-            </Card>
-          )}
-
-          {/* Tab: Salud */}
-          {activeTab === 'salud' && (
-            <Card style={[styles.tabCard, { backgroundColor: theme.colors.surface }]} elevation={1}>
-              <Card.Content>
-                <Text variant="titleSmall" style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-                  Estado de Salud
-                </Text>
-                <View style={styles.detailsGrid}>
-                  <DetailItem icon="heart-pulse" label="Condición" value={mascota.condicion_salud || '-'} theme={theme} />
-                  <DetailItem icon="medical-bag" label="Esterilizado/a" value={mascota.esterilizado ? '✅ Sí' : '❌ No'} theme={theme} />
-                  <DetailItem icon="chip" label="Microchip" value={mascota.microchip ? '✅ Sí' : '❌ No'} theme={theme} />
-                  {mascota.numero_microchip && (
-                    <DetailItem icon="barcode" label="N° Microchip" value={mascota.numero_microchip} theme={theme} />
-                  )}
-                  <DetailItem icon="allergy" label="Alergias" value={mascota.alergias || 'Ninguna'} theme={theme} />
-                  <DetailItem icon="history" label="Enf. Previas" value={mascota.enfermedades_previas || 'Ninguna'} theme={theme} />
-                  <DetailItem icon="pill" label="Medicamentos" value={mascota.medicamentos_actuales || 'Ninguno'} theme={theme} />
-                </View>
-
-                <Divider style={styles.divider} />
-                <Text variant="titleSmall" style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-                  Historial de Vacunación
-                </Text>
-                {(mascota.vacunas || []).length === 0 ? (
-                  <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic' }}>
-                    Sin vacunas registradas
-                  </Text>
-                ) : (
-                  mascota.vacunas.map((v, i) => (
-                    <View key={i} style={[styles.vacunaRow, { backgroundColor: theme.colors.surfaceVariant || '#FFF3E0' }]}>
-                      <MaterialCommunityIcons name="needle" size={18} color={theme.colors.primary} style={{ marginTop: 2 }} />
-                      <View style={{ flex: 1 }}>
-                        <Text variant="labelMedium" style={{ color: theme.colors.onSurface, fontWeight: '700' }}>
-                          {v.nombre}
-                        </Text>
-                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                          Aplicada: {v.fecha || '-'} • Próxima: {v.proxima || '-'}
-                        </Text>
-                        {v.veterinario && (
-                          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                            Veterinario: {v.veterinario}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-                  ))
-                )}
-              </Card.Content>
-            </Card>
-          )}
-
-          {/* Tab: Alimentación */}
-          {activeTab === 'alimentacion' && (
-            <Card style={[styles.tabCard, { backgroundColor: theme.colors.surface }]} elevation={1}>
-              <Card.Content>
-                <Text variant="titleSmall" style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-                  Plan de Alimentación
-                </Text>
-                {mascota.alimentacion ? (
-                  <>
-                    <View style={styles.detailsGrid}>
-                      <DetailItem icon="food-apple" label="Tipo" value={mascota.alimentacion.tipo || '-'} theme={theme} />
-                      <DetailItem icon="clock-outline" label="Frecuencia" value={mascota.alimentacion.frecuencia || '-'} theme={theme} />
-                      <DetailItem icon="weight-gram" label="Cantidad" value={mascota.alimentacion.cantidad || '-'} theme={theme} />
-                      <DetailItem icon="package-variant" label="Marca/Producto" value={mascota.alimentacion.marca || '-'} theme={theme} />
-                    </View>
-                    <Divider style={styles.divider} />
-                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 4 }}>Restricciones Alimenticias:</Text>
-                    <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-                      {mascota.alimentacion.restricciones || 'Ninguna restricción'}
-                    </Text>
-                  </>
-                ) : (
-                  <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic' }}>
-                    Sin información de alimentación registrada
-                  </Text>
-                )}
-              </Card.Content>
-            </Card>
-          )}
-
-          {/* Tab: Legal */}
-          {activeTab === 'legal' && (
-            <Card style={[styles.tabCard, { backgroundColor: theme.colors.surface }]} elevation={1}>
-              <Card.Content>
-                <Text variant="titleSmall" style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-                  Documentos Legales
-                </Text>
-                {(mascota.documentos_legales || []).length === 0 ? (
-                  <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic', marginBottom: 12 }}>
-                    Sin documentos adjuntos
-                  </Text>
-                ) : (
-                  mascota.documentos_legales.map((doc, i) => (
-                    <List.Item
-                      key={i}
-                      title={doc}
-                      left={(props) => <List.Icon {...props} icon="file-pdf-box" color="#E64A19" />}
-                      style={{ paddingLeft: 0 }}
-                      titleStyle={{ color: theme.colors.onSurface }}
-                    />
-                  ))
-                )}
-
-                <Button
-                  mode="outlined"
-                  icon="file-upload"
-                  style={{ marginTop: 8, borderColor: '#E64A19' }}
-                  textColor="#E64A19"
-                  onPress={() => {
-                    setSnackMessage('Importación de PDF disponible en el servidor cuando haya conexión.');
-                    setSnackVisible(true);
-                  }}
+              {mascota.descripcion ? (
+                <Text
+                  style={[
+                    styles.leadDescription,
+                    {
+                      color: palette.ink,
+                      fontFamily: fonts.sans,
+                      borderTopColor: palette.border,
+                    },
+                  ]}
                 >
-                  Importar Documento Legal (PDF)
-                </Button>
+                  {mascota.descripcion}
+                </Text>
+              ) : null}
+            </View>
 
-                <Divider style={styles.divider} />
-                <Text variant="titleSmall" style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-                  Exportar Expediente Completo
-                </Text>
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12 }}>
-                  Genera un PDF con toda la información del animal (datos, salud, vacunas, alimentación y documentos legales).
-                </Text>
-                <Button
-                  mode="contained"
-                  icon="file-pdf-box"
+            <View
+              style={[
+                styles.tabsBar,
+                {
+                  backgroundColor: palette.surface,
+                  borderColor: palette.border,
+                },
+              ]}
+            >
+              {tabs.map((tab) => {
+                const active = activeTab === tab.key;
+                return (
+                  <Pressable
+                    key={tab.key}
+                    onPress={() => setActiveTab(tab.key)}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                    style={[
+                      styles.tabBtn,
+                      active && {
+                        backgroundColor: palette.primary,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: active ? palette.onPrimary : palette.ink,
+                        fontFamily: fonts.sans,
+                        fontSize: 13,
+                        fontWeight: active ? '700' : '500',
+                      }}
+                    >
+                      {tab.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {activeTab === 'info' && (
+              <SectionSheet title="Datos generales y convivencia">
+                <SpecRow label="Especie" value={mascota.especie} />
+                <SpecRow label="Raza" value={mascota.raza || 'Mestizo'} />
+                <SpecRow label="Edad estimada" value={mascota.edad_aprox} />
+                <SpecRow label="Peso registrado" value={mascota.peso ? `${mascota.peso} kg` : null} mono />
+                <SpecRow label="Color o pelaje" value={mascota.color} />
+                <SpecRow label="Ubicación actual" value={mascota.ubicacion} />
+                <SpecRow
+                  label="Fecha de rescate"
+                  value={mascota.fecha_rescate ? String(mascota.fecha_rescate).split('T')[0] : null}
+                  mono
+                />
+                <SpecRow
+                  label="Lugar del hallazgo"
+                  value={mascota.lugar_rescate || mascota.rescate_ubicacion}
+                />
+                <SpecRow label="Nivel de actividad" value={mascota.nivel_ejercicio} />
+                <SpecRow label="Temperamento" value={mascota.comportamiento} />
+                <SpecRow
+                  label="Convivencia en hogar"
+                  value={`Niños: ${mascota.compatible_ninos ? 'Compatible' : 'Requiere precaución'} · Perros: ${
+                    mascota.compatible_perros ? 'Compatible' : 'No evaluado / selectivo'
+                  } · Gatos: ${mascota.compatible_gatos ? 'Compatible' : 'No evaluado / selectivo'}`}
+                  last
+                />
+              </SectionSheet>
+            )}
+
+            {activeTab === 'salud' && (
+              <SectionSheet title="Estado sanitario y vacunación">
+                <SpecRow label="Condición general" value={mascota.condicion_salud} />
+                <SpecRow label="Esterilización" value={mascota.esterilizado ? 'Realizada' : 'Pendiente'} />
+                <SpecRow
+                  label="Identificación microchip"
+                  value={
+                    mascota.microchip
+                      ? `Registrado (${mascota.numero_microchip || 'sin código'})`
+                      : 'No posee'
+                  }
+                  mono={Boolean(mascota.numero_microchip)}
+                />
+                <SpecRow label="Alergias conocidas" value={mascota.alergias || 'Ninguna'} />
+                <SpecRow label="Antecedentes médicos" value={mascota.enfermedades_previas || 'Ninguno'} />
+                <SpecRow
+                  label="Medicación actual"
+                  value={mascota.medicamentos_actuales || 'Ninguna'}
+                  last={!mascota.expedientes?.length && !(mascota.vacunas || []).length}
+                />
+
+                {Array.isArray(mascota.expedientes) && mascota.expedientes.length > 0 ? (
+                  <View
+                    style={[
+                      styles.clinicalNote,
+                      {
+                        backgroundColor: palette.status.success.bg,
+                        borderColor: palette.status.success.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: palette.status.success.fg,
+                        fontFamily: fonts.mono,
+                        fontSize: 11.5,
+                        fontWeight: '600',
+                      }}
+                    >
+                      ÚLTIMO REPORTE VETERINARIO ·{' '}
+                      {new Date(mascota.expedientes[0].fecha_actualizacion).toLocaleDateString('es-VE')}
+                    </Text>
+                    <Text
+                      style={{
+                        color: palette.status.success.fg,
+                        fontFamily: fonts.sans,
+                        fontSize: 13.5,
+                        fontWeight: '700',
+                        marginTop: 4,
+                      }}
+                    >
+                      Atendido por: {mascota.expedientes[0].veterinario_nombre || 'Médico veterinario'}
+                    </Text>
+                    <Text
+                      style={{
+                        color: palette.status.success.fg,
+                        fontFamily: fonts.sans,
+                        fontSize: 13.5,
+                        marginTop: 4,
+                      }}
+                    >
+                      Diagnóstico: {mascota.expedientes[0].diagnostico}
+                    </Text>
+                    {mascota.expedientes[0].tratamientos ? (
+                      <Text
+                        style={{
+                          color: palette.status.success.fg,
+                          fontFamily: fonts.sans,
+                          fontSize: 13,
+                          marginTop: 2,
+                        }}
+                      >
+                        Tratamiento: {mascota.expedientes[0].tratamientos}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                <View style={{ marginTop: 18 }}>
+                  <Text
+                    style={{
+                      color: palette.ink,
+                      fontFamily: fonts.serif,
+                      fontSize: 17,
+                      fontWeight: '600',
+                      marginBottom: 8,
+                    }}
+                  >
+                    Registro de vacunas ({(mascota.vacunas || []).length})
+                  </Text>
+                  {(mascota.vacunas || []).length === 0 ? (
+                    <Text style={{ color: palette.inkSecondary, fontFamily: fonts.sans, fontSize: 13.5 }}>
+                      No figuran dosis cargadas en el expediente.
+                    </Text>
+                  ) : (
+                    mascota.vacunas.map((v, i) => {
+                      const vObj = typeof v === 'string' ? { nombre: v } : v;
+                      return (
+                        <View
+                          key={`vac-${i}`}
+                          style={[
+                            styles.SubRow,
+                            {
+                              backgroundColor: palette.surfaceSubtle,
+                              borderColor: palette.border,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={{
+                              color: palette.ink,
+                              fontFamily: fonts.sans,
+                              fontSize: 13.5,
+                              fontWeight: '700',
+                            }}
+                          >
+                            {vObj.nombre}
+                          </Text>
+                          <Text
+                            style={{
+                              color: palette.inkSecondary,
+                              fontFamily: fonts.mono,
+                              fontSize: 12,
+                              marginTop: 2,
+                            }}
+                          >
+                            Aplicada: {vObj.fecha || 'N/D'} · Refuerzo: {vObj.proxima || 'N/D'}
+                            {vObj.veterinario ? ` · ${vObj.veterinario}` : ''}
+                          </Text>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              </SectionSheet>
+            )}
+
+            {activeTab === 'alimentacion' && (
+              <SectionSheet title="Pauta de alimentación">
+                {mascota.alimentacion && Object.keys(mascota.alimentacion).length > 0 ? (
+                  <>
+                    <SpecRow label="Tipo de dieta" value={mascota.alimentacion.tipo} />
+                    <SpecRow label="Frecuencia diaria" value={mascota.alimentacion.frecuencia} />
+                    <SpecRow label="Ración sugerida" value={mascota.alimentacion.cantidad} mono />
+                    <SpecRow label="Marca o referencia" value={mascota.alimentacion.marca} />
+                    <SpecRow
+                      label="Restricciones"
+                      value={mascota.alimentacion.restricciones || 'Sin restricciones especiales'}
+                      last
+                    />
+                  </>
+                ) : (
+                  <Text style={{ color: palette.inkSecondary, fontFamily: fonts.sans, fontSize: 14 }}>
+                    El publicador aún no ha detallado una pauta nutricional específica.
+                  </Text>
+                )}
+              </SectionSheet>
+            )}
+
+            {activeTab === 'legal' && (
+              <SectionSheet
+                title="Constancias y soporte documental"
+                subtitle="Actas de rescate, certificados sanitarios y compromisos de entrega."
+              >
+                {(mascota.documentos_legales || []).length === 0 ? (
+                  <Text
+                    style={{
+                      color: palette.inkSecondary,
+                      fontFamily: fonts.sans,
+                      fontSize: 14,
+                      marginBottom: 16,
+                    }}
+                  >
+                    No hay actas o constancias numeradas asociadas a esta ficha.
+                  </Text>
+                ) : (
+                  <View style={{ marginBottom: 16, gap: 8 }}>
+                    {mascota.documentos_legales.map((doc, i) => (
+                      <View
+                        key={`doc-${i}`}
+                        style={[
+                          styles.SubRow,
+                          {
+                            backgroundColor: palette.surfaceSubtle,
+                            borderColor: palette.border,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: palette.ink,
+                            fontFamily: fonts.sans,
+                            fontSize: 13.5,
+                            fontWeight: '500',
+                          }}
+                        >
+                          {doc}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                <ActionButton
+                  label={exportingPDF ? 'Generando documento...' : 'Descargar o imprimir expediente PDF'}
+                  variant="primary"
                   onPress={handleExportarPDF}
                   loading={exportingPDF}
-                  disabled={exportingPDF}
-                  buttonColor="#E64A19"
-                  textColor="#FFF"
-                >
-                  {exportingPDF ? 'Generando PDF...' : 'Exportar PDF Completo'}
-                </Button>
-              </Card.Content>
-            </Card>
-          )}
+                />
+              </SectionSheet>
+            )}
+          </View>
         </View>
       </ScrollView>
 
-
-      <Snackbar
-        visible={snackVisible}
-        onDismiss={() => setSnackVisible(false)}
-        duration={3000}
-        action={{ label: 'OK', onPress: () => setSnackVisible(false) }}
-      >
+      <Snackbar visible={snackVisible} onDismiss={() => setSnackVisible(false)} duration={3000}>
         {snackMessage}
       </Snackbar>
     </View>
   );
 }
 
-function DetailItem({ icon, label, value, theme }) {
-  return (
-    <View style={detailStyles.container}>
-      <MaterialCommunityIcons name={icon} size={18} color={theme.colors.primary} />
-      <View style={detailStyles.textContainer}>
-        <Text variant="labelSmall" style={{ color: theme.colors.primary, fontSize: 10 }}>{label}</Text>
-        <Text variant="bodySmall" style={{ color: theme.colors.onSurface }}>{value}</Text>
-      </View>
-    </View>
-  );
-}
-
-const detailStyles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    width: '48%',
-    marginBottom: 12,
-  },
-  textContainer: { flex: 1 },
-});
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { padding: 16 },
-  mainContent: { maxWidth: 800, alignSelf: 'center', width: '100%' },
-  mainContentWide: { maxWidth: 900 },
-  photoSection: { marginBottom: 16 },
-  mainPhoto: { width: '100%', height: 280, borderRadius: 16 },
-  mainPhotoWide: { height: 380 },
-  thumbnailList: { paddingTop: 8, gap: 8 },
-  thumbnail: { width: 64, height: 64, borderRadius: 8, marginRight: 8 },
-  photoActions: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  nameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-  petName: { fontWeight: '700', flex: 1 },
-  tabRow: { flexDirection: 'row', borderBottomWidth: 1, marginBottom: 12 },
-  tabItem: { flex: 1, alignItems: 'center', paddingVertical: 8 },
-  tabCard: { borderRadius: 12, marginBottom: 16 },
-  detailsGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  sectionTitle: { fontWeight: '600', marginBottom: 10 },
-  divider: { marginVertical: 14 },
-  vacunaRow: { flexDirection: 'row', gap: 10, padding: 10, borderRadius: 8, marginBottom: 8 },
-  actions: { gap: 10 },
-  actionButton: { borderRadius: 8 },
-  actionButtonContent: { paddingVertical: 6 },
-  dialogInput: { marginBottom: 12 },
+  scrollContent: {
+    maxWidth: 1200,
+    width: '100%',
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 48,
+  },
+  breadcrumbRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  backLink: {
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  dossierGrid: {
+    flexDirection: 'column',
+    gap: 20,
+  },
+  dossierGridDesktop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 24,
+  },
+  leftRail: {
+    width: '100%',
+  },
+  leftRailDesktop: {
+    flex: 0.85,
+    maxWidth: 460,
+  },
+  rightCol: {
+    width: '100%',
+  },
+  rightColDesktop: {
+    flex: 1.15,
+  },
+  photoFrame: {
+    borderRadius: 6,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  mainPhoto: {
+    width: '100%',
+    height: 290,
+  },
+  mainPhotoDesktop: {
+    height: 350,
+  },
+  thumbRow: {
+    padding: 10,
+    gap: 8,
+    borderTopWidth: 1,
+  },
+  thumb: {
+    width: 64,
+    height: 52,
+    borderRadius: 4,
+  },
+  actionStack: {
+    gap: 10,
+  },
+  secondaryActionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  confirmBox: {
+    padding: 14,
+    borderRadius: 4,
+    borderWidth: 1,
+    gap: 10,
+    marginTop: 4,
+  },
+  titleSheet: {
+    borderRadius: 6,
+    borderWidth: 1,
+    padding: 20,
+    marginBottom: 14,
+  },
+  titleTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  petName: {
+    fontSize: 32,
+    fontWeight: '600',
+    lineHeight: 38,
+    marginBottom: 6,
+  },
+  leadDescription: {
+    fontSize: 14.5,
+    lineHeight: 22,
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+  },
+  tabsBar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    gap: 4,
+    marginBottom: 14,
+  },
+  tabBtn: {
+    flex: 1,
+    minWidth: 110,
+    minHeight: 44,
+    borderRadius: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  clinicalNote: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  SubRow: {
+    padding: 12,
+    borderRadius: 4,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
 });

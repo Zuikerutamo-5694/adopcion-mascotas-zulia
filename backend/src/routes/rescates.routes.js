@@ -5,18 +5,21 @@ const { body, param } = require('express-validator');
 
 const router = Router();
 
-const createRescateValidator = [
+const createOrUpdateRescateValidator = [
   body('ubicacion')
     .trim()
     .notEmpty().withMessage('La ubicación es obligatoria')
     .isLength({ max: 300 }).withMessage('La ubicación no puede exceder 300 caracteres'),
 
   body('fecha_rescate')
-    .optional(),
+    .optional({ values: 'falsy' })
+    .isISO8601().withMessage('La fecha de rescate debe tener formato AAAA-MM-DD'),
 
   body('notas')
     .custom((val, { req }) => {
-      req.body.notas = val || req.body.descripcion || req.body.observaciones || null;
+      req.body.notas = (val || req.body.descripcion || '').trim() || null;
+      req.body.condicion_inicial = (req.body.condicion_inicial || req.body.condicion || '').trim() || null;
+      req.body.observaciones = (req.body.observaciones || '').trim() || null;
       return true;
     }),
 ];
@@ -25,30 +28,44 @@ const idParamValidator = [
   param('id').isInt({ min: 1 }).withMessage('ID inválido'),
 ];
 
-// POST /api/rescates – Only rescatista can create
 router.post(
   '/',
   verifyToken,
-  requireRole('rescatista'),
-  createRescateValidator,
+  requireRole('rescatista', 'administrador'),
+  createOrUpdateRescateValidator,
   rescatesController.create
 );
 
-// GET /api/rescates – Rescatista sees own, admin sees all
 router.get(
   '/',
   verifyToken,
-  requireRole('rescatista', 'administrador'),
+  requireRole('rescatista', 'veterinario', 'administrador'),
   rescatesController.list
 );
 
-// GET /api/rescates/:id
 router.get(
+  '/:id',
+  verifyToken,
+  requireRole('rescatista', 'veterinario', 'administrador'),
+  idParamValidator,
+  rescatesController.getById
+);
+
+router.put(
   '/:id',
   verifyToken,
   requireRole('rescatista', 'administrador'),
   idParamValidator,
-  rescatesController.getById
+  createOrUpdateRescateValidator,
+  rescatesController.update
+);
+
+router.delete(
+  '/:id',
+  verifyToken,
+  requireRole('rescatista', 'administrador'),
+  idParamValidator,
+  rescatesController.remove
 );
 
 module.exports = router;

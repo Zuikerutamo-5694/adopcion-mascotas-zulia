@@ -11,16 +11,25 @@ const createExpedienteValidator = [
       return true;
     }),
 
+  body('peso')
+    .optional({ values: 'falsy' })
+    .isFloat({ min: 0 }).withMessage('El peso debe ser un número positivo'),
+
+  body('temperatura')
+    .optional({ values: 'falsy' })
+    .isFloat({ min: 30, max: 46 }).withMessage('La temperatura debe estar entre 30 y 46 °C'),
+
   body('vacunas')
     .optional(),
 
   body('diagnostico')
-    .optional()
-    .trim(),
+    .trim()
+    .notEmpty().withMessage('El diagnóstico clínico es obligatorio'),
 
   body('tratamientos')
     .custom((val, { req }) => {
-      req.body.tratamientos = val || req.body.tratamiento || null;
+      req.body.tratamientos = (val || req.body.tratamiento || '').trim() || null;
+      req.body.observaciones = (req.body.observaciones || '').trim() || null;
       return true;
     }),
 ];
@@ -29,6 +38,14 @@ const updateExpedienteValidator = [
   param('id')
     .isInt({ min: 1 }).withMessage('ID de expediente inválido'),
 
+  body('peso')
+    .optional({ values: 'falsy' })
+    .isFloat({ min: 0 }).withMessage('El peso debe ser un número positivo'),
+
+  body('temperatura')
+    .optional({ values: 'falsy' })
+    .isFloat({ min: 30, max: 46 }).withMessage('La temperatura debe estar entre 30 y 46 °C'),
+
   body('vacunas')
     .optional(),
 
@@ -38,7 +55,13 @@ const updateExpedienteValidator = [
 
   body('tratamientos')
     .custom((val, { req }) => {
-      req.body.tratamientos = val || req.body.tratamiento || null;
+      const resolved = val !== undefined ? val : req.body.tratamiento;
+      if (resolved !== undefined) {
+        req.body.tratamientos = String(resolved).trim() || null;
+      }
+      if (req.body.observaciones !== undefined) {
+        req.body.observaciones = String(req.body.observaciones).trim() || null;
+      }
       return true;
     }),
 ];

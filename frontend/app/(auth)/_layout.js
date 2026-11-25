@@ -1,14 +1,15 @@
 import React from 'react';
 import { Stack } from 'expo-router';
-import theme from '../../src/constants/theme';
+import { useAppTheme } from '../../src/contexts/ThemeContext';
 
 export default function AuthLayout() {
+  const { palette } = useAppTheme();
   return (
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: theme.colors.background },
-        animation: 'slide_from_bottom',
+        contentStyle: { backgroundColor: palette.canvas },
+        animation: 'fade',
       }}
     >
       <Stack.Screen name="login" />

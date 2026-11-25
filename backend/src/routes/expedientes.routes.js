@@ -9,7 +9,15 @@ const { verifyToken, requireRole } = require('../middlewares/auth');
 
 const router = Router();
 
-// POST /api/expedientes – Only veterinario/admin can create
+// GET /api/expedientes – Bandeja clínica general (mascotas + último expediente)
+router.get(
+  '/',
+  verifyToken,
+  requireRole('veterinario', 'administrador'),
+  expedientesController.listOverview
+);
+
+// POST /api/expedientes
 router.post(
   '/',
   verifyToken,
@@ -18,7 +26,7 @@ router.post(
   expedientesController.create
 );
 
-// GET /api/expedientes/mascota/:id – Get records for a pet (all authenticated)
+// GET /api/expedientes/mascota/:id
 router.get(
   '/mascota/:id',
   verifyToken,
@@ -26,7 +34,7 @@ router.get(
   expedientesController.getByMascota
 );
 
-// GET /api/expedientes/:id – Get single record
+// GET /api/expedientes/:id
 router.get(
   '/:id',
   verifyToken,
@@ -34,7 +42,7 @@ router.get(
   expedientesController.getById
 );
 
-// PUT /api/expedientes/:id – Only veterinario/admin can update
+// PUT /api/expedientes/:id
 router.put(
   '/:id',
   verifyToken,

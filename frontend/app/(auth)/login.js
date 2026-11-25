@@ -1,50 +1,56 @@
 import React, { useState } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Dimensions,
+  useWindowDimensions,
   Image,
+  Pressable,
 } from 'react-native';
-import {
-  Text,
-  TextInput,
-  Button,
-  Card,
-  Chip,
-  Divider,
-  useTheme,
-} from 'react-native-paper';
 import { useRouter, Link } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../src/hooks/useAuth';
+import { useAppTheme } from '../../src/contexts/ThemeContext';
+import {
+  FieldInput,
+  ActionButton,
+  ThemeToggleButton,
+  SectionSheet,
+} from '../../src/components/ui';
+
+const DEMO_ACCOUNTS = [
+  { rol: 'adoptante', label: 'Adoptante', detail: 'Postulación y seguimiento de citas' },
+  { rol: 'rescatista', label: 'Rescatista', detail: 'Bitácora de campo y publicación' },
+  { rol: 'veterinario', label: 'Veterinario', detail: 'Historias clínicas y vacunación' },
+  { rol: 'administrador', label: 'Administrador', detail: 'Moderación y registro general' },
+];
 
 export default function LoginScreen() {
-  const theme = useTheme();
+  const { palette, fonts } = useAppTheme();
   const router = useRouter();
-  const { login, loginOffline, loginDemo } = useAuth();
+  const { login, loginDemo } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoLoadingRole, setDemoLoadingRole] = useState('');
   const [error, setError] = useState('');
 
-  const { width } = Dimensions.get('window');
-  const isWide = width > 600;
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 880;
 
   const handleLogin = async () => {
     setError('');
 
     if (!email.trim()) {
-      setError('Por favor ingresa tu correo electrónico.');
+      setError('Ingresa tu correo electrónico registrado.');
       return;
     }
-    if (!password.trim()) {
-      setError('Por favor ingresa tu contraseña.');
+    if (!password) {
+      setError('Ingresa tu contraseña.');
       return;
     }
 
@@ -54,261 +60,324 @@ export default function LoginScreen() {
       if (result.success) {
         router.replace('/(tabs)/mascotas');
         return;
-      } else {
-        setError(result.message || 'Credenciales incorrectas.');
       }
+      setError(result.message || 'Las credenciales ingresadas no coinciden.');
     } catch (err) {
-      // Si el servidor no responde o no hay internet, iniciar sesión automáticamente sin conexión
-      try {
-        await loginOffline(email.trim(), password);
-        router.replace('/(tabs)/mascotas');
-        return;
-      } catch (offlineErr) {
-        setError('Error al iniciar sesión sin internet.');
-      }
+      const serverMsg = err.response?.data?.message;
+      setError(
+        serverMsg ||
+          'No hubo respuesta del servidor local en el puerto 4000. Verifica que el backend esté activo.'
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const handleOfflineDirect = async () => {
+  const handleQuickSeedLogin = async (rol) => {
     setError('');
-    setDemoLoading(true);
+    setDemoLoadingRole(rol);
     try {
-      await loginOffline(email.trim() || 'ce10pulgar@gmail.com', password || '123456');
-      router.replace('/(tabs)/mascotas');
+      const result = await loginDemo(rol);
+      if (result.success) {
+        router.replace('/(tabs)/mascotas');
+      } else {
+        setError(result.message || 'No se pudo iniciar sesión con la cuenta seleccionada.');
+      }
     } catch (err) {
-      setError('Error al ingresar sin conexión.');
+      setError(
+        err.response?.data?.message ||
+          'No se pudo conectar con el servidor API en localhost:4000.'
+      );
     } finally {
-      setDemoLoading(false);
-    }
-  };
-
-  const handleDemoAccess = async (rol) => {
-    setError('');
-    setDemoLoading(true);
-    try {
-      await loginDemo(rol);
-      router.replace('/(tabs)/mascotas');
-    } catch (err) {
-      setError('Error al iniciar el modo demostración.');
-    } finally {
-      setDemoLoading(false);
+      setDemoLoadingRole('');
     }
   };
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: palette.canvas }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView
         contentContainerStyle={[
-          styles.container,
-          { backgroundColor: theme.colors.background },
+          styles.scroll,
+          { backgroundColor: palette.canvas },
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={[styles.content, isWide && styles.contentWide]}>
-          {/* Logo / Header */}
-          <View style={styles.header}>
-            <Image
-              source={require('../../assets/logo.png')}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
+        <View style={[styles.topBar, { borderBottomColor: palette.border }]}>
+          <View style={styles.topBarInner}>
+            <View style={styles.brandRow}>
+              <Image
+                source={require('../../assets/logo.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+              <View>
+                <Text
+                  style={{
+                    color: palette.ink,
+                    fontFamily: fonts.serif,
+                    fontSize: 19,
+                    fontWeight: '700',
+                  }}
+                >
+                  Adopción Zulia
+                </Text>
+                <Text
+                  style={{
+                    color: palette.inkSecondary,
+                    fontFamily: fonts.mono,
+                    fontSize: 10.5,
+                  }}
+                >
+                  REGISTRO COLABORATIVO · MARACAIBO Y MUNICIPIOS
+                </Text>
+              </View>
+            </View>
+            <ThemeToggleButton />
+          </View>
+        </View>
+
+        <View style={[styles.mainGrid, isDesktop && styles.mainGridDesktop]}>
+          <View style={[styles.editorialCol, isDesktop && styles.editorialColDesktop]}>
             <Text
-              variant="headlineMedium"
-              style={[styles.title, { color: theme.colors.primary }]}
+              style={[
+                styles.kicker,
+                { color: palette.primaryText, fontFamily: fonts.mono },
+              ]}
             >
-              Adopción de Mascotas
+              PLATAFORMA COMUNITARIA DE ADOPCIÓN RESPONSABLE
             </Text>
             <Text
-              variant="bodyLarge"
-              style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}
+              style={[
+                styles.heroTitle,
+                { color: palette.ink, fontFamily: fonts.serif },
+              ]}
             >
-              Comunidades de Adopción • Estado Zulia
+              Un expediente claro para cada animal rescatado en el Zulia.
             </Text>
+            <Text
+              style={[
+                styles.heroBody,
+                { color: palette.inkSecondary, fontFamily: fonts.sans },
+              ]}
+            >
+              Fundaciones, rescatistas independientes, médicos veterinarios y familias adoptantes trabajan sobre el mismo registro verificable: desde el operativo de rescate y el control sanitario hasta la entrevista presencial de entrega.
+            </Text>
+
+            <View
+              style={[
+                styles.rolesLedger,
+                {
+                  borderColor: palette.border,
+                  backgroundColor: palette.surface,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.ledgerTitle,
+                  { color: palette.ink, fontFamily: fonts.sans },
+                ]}
+              >
+                Roles articulados en la red
+              </Text>
+              <View style={[styles.ledgerItem, { borderTopColor: palette.border }]}>
+                <Text style={[styles.ledgerRole, { color: palette.primaryText, fontFamily: fonts.mono }]}>
+                  01 · RESCATE
+                </Text>
+                <Text style={[styles.ledgerDesc, { color: palette.inkSecondary, fontFamily: fonts.sans }]}>
+                  Documentación de hallazgos por sector, condición física inicial y resguardo temporal.
+                </Text>
+              </View>
+              <View style={[styles.ledgerItem, { borderTopColor: palette.border }]}>
+                <Text style={[styles.ledgerRole, { color: palette.primaryText, fontFamily: fonts.mono }]}>
+                  02 · CLÍNICA
+                </Text>
+                <Text style={[styles.ledgerDesc, { color: palette.inkSecondary, fontFamily: fonts.sans }]}>
+                  Diagnóstico veterinario, control de peso, esterilización y esquema de vacunación.
+                </Text>
+              </View>
+              <View style={[styles.ledgerItem, { borderTopColor: palette.border }]}>
+                <Text style={[styles.ledgerRole, { color: palette.primaryText, fontFamily: fonts.mono }]}>
+                  03 · HOGAR
+                </Text>
+                <Text style={[styles.ledgerDesc, { color: palette.inkSecondary, fontFamily: fonts.sans }]}>
+                  Solicitud socioeconómica transparente, programación de citas y seguimiento.
+                </Text>
+              </View>
+            </View>
           </View>
 
-          {/* Formulario de Login */}
-          <Card
-            style={[styles.card, { backgroundColor: theme.colors.surface }]}
-            elevation={3}
-          >
-            <Card.Content style={styles.cardContent}>
-              <Text
-                variant="titleLarge"
-                style={[styles.cardTitle, { color: theme.colors.onSurface }]}
-              >
-                Iniciar Sesión
-              </Text>
-
+          <View style={[styles.formCol, isDesktop && styles.formColDesktop]}>
+            <SectionSheet
+              title="Acceso a la plataforma"
+              subtitle="Ingresa con tu correo registrado o prueba un rol activo en Supabase."
+            >
               {error ? (
                 <View
                   style={[
-                    styles.errorBox,
-                    { backgroundColor: theme.colors.errorContainer },
+                    styles.alertBox,
+                    {
+                      backgroundColor: palette.status.danger.bg,
+                      borderColor: palette.status.danger.border,
+                    },
                   ]}
                 >
-                  <MaterialCommunityIcons
-                    name="alert-circle"
-                    size={20}
-                    color={theme.colors.error}
-                  />
                   <Text
-                    variant="bodyMedium"
-                    style={[styles.errorText, { color: theme.colors.error }]}
+                    style={{
+                      color: palette.status.danger.fg,
+                      fontFamily: fonts.sans,
+                      fontSize: 13.5,
+                      fontWeight: '500',
+                    }}
                   >
                     {error}
                   </Text>
                 </View>
               ) : null}
 
-              <TextInput
+              <FieldInput
                 label="Correo electrónico"
                 value={email}
                 onChangeText={setEmail}
-                mode="outlined"
+                placeholder="nombre@ejemplo.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoComplete="email"
-                left={<TextInput.Icon icon="email" />}
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
-                disabled={loading || demoLoading}
+                disabled={loading || Boolean(demoLoadingRole)}
               />
 
-              <TextInput
+              <FieldInput
                 label="Contraseña"
                 value={password}
                 onChangeText={setPassword}
-                mode="outlined"
+                placeholder="Ingresa tu contraseña"
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
-                left={<TextInput.Icon icon="lock" />}
-                right={
-                  <TextInput.Icon
-                    icon={showPassword ? 'eye-off' : 'eye'}
-                    onPress={() => setShowPassword(!showPassword)}
-                  />
-                }
-                style={styles.input}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={theme.colors.primary}
-                disabled={loading || demoLoading}
+                rightActionLabel={showPassword ? 'Ocultar' : 'Mostrar'}
+                onRightAction={() => setShowPassword((v) => !v)}
+                disabled={loading || Boolean(demoLoadingRole)}
                 onSubmitEditing={handleLogin}
               />
 
-              <Button
-                mode="contained"
+              <ActionButton
+                label={loading ? 'Verificando credenciales...' : 'Ingresar a mi cuenta'}
                 onPress={handleLogin}
                 loading={loading}
-                disabled={loading || demoLoading}
-                style={styles.loginButton}
-                contentStyle={styles.loginButtonContent}
-                buttonColor={theme.colors.primary}
-                textColor={theme.colors.onPrimary}
-              >
-                {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
-              </Button>
+                disabled={Boolean(demoLoadingRole)}
+                variant="primary"
+                fullWidth
+                style={{ marginTop: 4 }}
+              />
 
-              <Button
-                mode="outlined"
-                icon="cloud-off-outline"
-                onPress={handleOfflineDirect}
-                loading={demoLoading}
-                disabled={loading || demoLoading}
-                style={{ marginTop: 10, borderColor: theme.colors.primary }}
-                textColor={theme.colors.primary}
-              >
-                Entrar sin Internet (Modo Offline)
-              </Button>
-
-              <View style={styles.registerRow}>
+              <View style={styles.registerPrompt}>
                 <Text
-                  variant="bodyMedium"
-                  style={{ color: theme.colors.onSurfaceVariant }}
+                  style={{
+                    color: palette.inkSecondary,
+                    fontFamily: fonts.sans,
+                    fontSize: 13.5,
+                  }}
                 >
-                  ¿No tienes cuenta?{' '}
+                  ¿Deseas postularte o registrar una fundación?
                 </Text>
                 <Link href="/(auth)/register" asChild>
-                  <Button
-                    mode="text"
-                    compact
-                    textColor={theme.colors.primary}
-                  >
-                    Regístrate aquí
-                  </Button>
+                  <Pressable accessibilityRole="link" style={styles.inlineLink}>
+                    <Text
+                      style={{
+                        color: palette.accentText,
+                        fontFamily: fonts.sans,
+                        fontSize: 13.5,
+                        fontWeight: '700',
+                      }}
+                    >
+                      Crear cuenta nueva
+                    </Text>
+                  </Pressable>
                 </Link>
               </View>
 
-              <Divider style={{ marginVertical: 18 }} />
-
-              {/* Acceso Rápido / Modo Demo Offline */}
-              <View style={styles.demoSection}>
-                <View style={styles.demoHeader}>
-                  <MaterialCommunityIcons
-                    name="lightning-bolt"
-                    size={20}
-                    color="#FF9800"
-                  />
-                  <Text
-                    variant="labelLarge"
-                    style={{ fontWeight: '700', color: theme.colors.onSurface }}
-                  >
-                    Acceso Rápido (Modo Demo / Sin Servidor)
-                  </Text>
-                </View>
+              <View style={[styles.demoDivider, { borderTopColor: palette.border }]}>
                 <Text
-                  variant="bodySmall"
-                  style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12, textAlign: 'center' }}
+                  style={{
+                    color: palette.ink,
+                    fontFamily: fonts.sans,
+                    fontSize: 13,
+                    fontWeight: '700',
+                    marginBottom: 4,
+                  }}
                 >
-                  Toca un rol para ingresar al instante y probar la app:
+                  Cuentas semilla verificadas en Supabase
+                </Text>
+                <Text
+                  style={{
+                    color: palette.inkSecondary,
+                    fontFamily: fonts.sans,
+                    fontSize: 12.5,
+                    marginBottom: 12,
+                  }}
+                >
+                  Selecciona un perfil para recorrer las funciones propias de ese rol:
                 </Text>
 
-                <View style={styles.chipsGrid}>
-                  <Chip
-                    icon="account-heart"
-                    mode="outlined"
-                    style={styles.demoChip}
-                    onPress={() => handleDemoAccess('adoptante')}
-                    disabled={loading || demoLoading}
-                  >
-                    Adoptante
-                  </Chip>
-                  <Chip
-                    icon="hand-heart"
-                    mode="outlined"
-                    style={styles.demoChip}
-                    onPress={() => handleDemoAccess('rescatista')}
-                    disabled={loading || demoLoading}
-                  >
-                    Rescatista
-                  </Chip>
-                  <Chip
-                    icon="medical-bag"
-                    mode="outlined"
-                    style={styles.demoChip}
-                    onPress={() => handleDemoAccess('veterinario')}
-                    disabled={loading || demoLoading}
-                  >
-                    Veterinario
-                  </Chip>
-                  <Chip
-                    icon="shield-crown"
-                    mode="outlined"
-                    style={styles.demoChip}
-                    onPress={() => handleDemoAccess('administrador')}
-                    disabled={loading || demoLoading}
-                  >
-                    Admin
-                  </Chip>
+                <View style={styles.demoList}>
+                  {DEMO_ACCOUNTS.map((acc) => {
+                    const isThisLoading = demoLoadingRole === acc.rol;
+                    return (
+                      <Pressable
+                        key={acc.rol}
+                        onPress={() => handleQuickSeedLogin(acc.rol)}
+                        disabled={loading || Boolean(demoLoadingRole)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Ingresar como ${acc.label}`}
+                        style={({ pressed }) => [
+                          styles.demoRow,
+                          {
+                            backgroundColor: palette.surfaceSubtle,
+                            borderColor: palette.borderStrong,
+                            opacity: pressed ? 0.85 : 1,
+                          },
+                        ]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={{
+                              color: palette.ink,
+                              fontFamily: fonts.sans,
+                              fontSize: 13.5,
+                              fontWeight: '700',
+                            }}
+                          >
+                            {acc.label}
+                          </Text>
+                          <Text
+                            style={{
+                              color: palette.inkSecondary,
+                              fontFamily: fonts.sans,
+                              fontSize: 12,
+                            }}
+                          >
+                            {acc.detail}
+                          </Text>
+                        </View>
+                        <Text
+                          style={{
+                            color: palette.primaryText,
+                            fontFamily: fonts.mono,
+                            fontSize: 12,
+                            fontWeight: '600',
+                          }}
+                        >
+                          {isThisLoading ? 'Entrando...' : 'Usar cuenta'}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               </View>
-            </Card.Content>
-          </Card>
+            </SectionSheet>
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -316,100 +385,136 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  scroll: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 16,
-    paddingVertical: 32,
+    paddingBottom: 40,
   },
-  content: {
+  topBar: {
+    borderBottomWidth: 1,
     width: '100%',
-    maxWidth: 480,
+  },
+  topBarInner: {
+    maxWidth: 1160,
+    width: '100%',
     alignSelf: 'center',
-  },
-  contentWide: {
-    maxWidth: 440,
-  },
-  header: {
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    gap: 12,
   },
-  logoImage: {
-    width: 96,
-    height: 96,
-    marginBottom: 12,
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  logo: {
+    width: 36,
+    height: 36,
+  },
+  mainGrid: {
+    maxWidth: 1160,
+    width: '100%',
     alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 28,
+    gap: 28,
   },
-  title: {
-    fontWeight: '700',
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  subtitle: {
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  card: {
-    borderRadius: 16,
-  },
-  cardContent: {
-    padding: 24,
-  },
-  cardTitle: {
-    fontWeight: '600',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  errorBox: {
+  mainGridDesktop: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-    gap: 8,
+    paddingTop: 44,
+    gap: 48,
   },
-  errorText: {
-    flex: 1,
-    fontWeight: '500',
+  editorialCol: {
+    width: '100%',
   },
-  input: {
-    marginBottom: 16,
+  editorialColDesktop: {
+    flex: 1.15,
+    paddingTop: 8,
   },
-  loginButton: {
-    marginTop: 8,
-    borderRadius: 8,
+  formCol: {
+    width: '100%',
   },
-  loginButtonContent: {
-    paddingVertical: 6,
+  formColDesktop: {
+    flex: 0.95,
+    maxWidth: 460,
   },
-  registerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 12,
-    flexWrap: 'wrap',
+  kicker: {
+    fontSize: 12,
+    marginBottom: 10,
   },
-  demoSection: {
-    backgroundColor: '#FFF8E1',
-    borderRadius: 12,
-    padding: 14,
+  heroTitle: {
+    fontSize: 34,
+    lineHeight: 41,
+    fontWeight: '600',
+    marginBottom: 14,
+  },
+  heroBody: {
+    fontSize: 15,
+    lineHeight: 24,
+    marginBottom: 24,
+  },
+  rolesLedger: {
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#FFE082',
+    padding: 18,
   },
-  demoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginBottom: 6,
+  ledgerTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    marginBottom: 10,
   },
-  chipsGrid: {
+  ledgerItem: {
+    borderTopWidth: 1,
+    paddingVertical: 10,
+    gap: 3,
+  },
+  ledgerRole: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  ledgerDesc: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  alertBox: {
+    padding: 12,
+    borderRadius: 4,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  registerPrompt: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'center',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    marginTop: 14,
   },
-  demoChip: {
-    backgroundColor: '#FFFFFF',
+  inlineLink: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  demoDivider: {
+    borderTopWidth: 1,
+    marginTop: 18,
+    paddingTop: 18,
+  },
+  demoList: {
+    gap: 8,
+  },
+  demoRow: {
+    minHeight: 52,
+    borderRadius: 4,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
 });

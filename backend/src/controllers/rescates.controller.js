@@ -1,9 +1,6 @@
 const { validationResult } = require('express-validator');
 const rescatesService = require('../services/rescates.service');
 
-/**
- * POST /api/rescates
- */
 async function create(req, res, next) {
   try {
     const errors = validationResult(req);
@@ -11,7 +8,7 @@ async function create(req, res, next) {
       return res.status(400).json({
         success: false,
         data: errors.array(),
-        message: 'Errores de validación',
+        message: errors.array()[0]?.msg || 'Errores de validación',
       });
     }
 
@@ -27,9 +24,6 @@ async function create(req, res, next) {
   }
 }
 
-/**
- * GET /api/rescates
- */
 async function list(req, res, next) {
   try {
     const result = await rescatesService.list(req.user, req.query);
@@ -44,12 +38,18 @@ async function list(req, res, next) {
   }
 }
 
-/**
- * GET /api/rescates/:id
- */
 async function getById(req, res, next) {
   try {
-    const rescate = await rescatesService.getById(req.params.id);
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        data: errors.array(),
+        message: errors.array()[0]?.msg || 'Errores de validación',
+      });
+    }
+
+    const rescate = await rescatesService.getById(req.params.id, req.user);
 
     res.json({
       success: true,
@@ -61,4 +61,48 @@ async function getById(req, res, next) {
   }
 }
 
-module.exports = { create, list, getById };
+async function update(req, res, next) {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        data: errors.array(),
+        message: errors.array()[0]?.msg || 'Errores de validación',
+      });
+    }
+
+    const rescate = await rescatesService.update(req.params.id, req.body, req.user);
+    res.json({
+      success: true,
+      data: rescate,
+      message: 'Rescate actualizado exitosamente',
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function remove(req, res, next) {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        data: errors.array(),
+        message: errors.array()[0]?.msg || 'Errores de validación',
+      });
+    }
+
+    await rescatesService.remove(req.params.id, req.user);
+    res.json({
+      success: true,
+      data: null,
+      message: 'Rescate eliminado exitosamente',
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { create, list, getById, update, remove };
